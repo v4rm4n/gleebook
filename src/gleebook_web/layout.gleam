@@ -1,5 +1,4 @@
 // src/gleebook_web/layout.gleam
-
 import gleam/int.{to_string as int_to_string}
 import gleam/list
 import gleebook/core.{type Chapter}
@@ -108,9 +107,36 @@ fn render_theme_styles() -> Element(msg) {
       66% { transform: translate(40px, -40px) rotate(-240deg) scale(0.7); }
     }
 
+    @keyframes lucyBlink {
+      0%, 90%, 100% { opacity: 0; }
+      92%, 96% { opacity: 1; }
+    }
+
     .lucy-1 { animation: drift-1 12s infinite ease-in-out; }
     .lucy-2 { animation: drift-2 15s infinite ease-in-out reverse; }
     .lucy-3 { animation: drift-1 18s infinite ease-in-out 5s; }
+
+    .lucy-blink-overlay {
+      animation: lucyBlink 4s infinite ease-in-out;
+    }
+
+    /* Sidebar Brand Lucy Hover & Rotation Styles */
+    .brand-lucy-icon {
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .brand-lucy:hover .brand-lucy-icon {
+      transform: rotate(12deg) scale(1.15);
+    }
+    .brand-lucy .lucy-happy {
+      opacity: 0;
+      transition: opacity 0.2s ease-in-out;
+    }
+    .brand-lucy:hover .lucy-happy {
+      opacity: 1;
+    }
+    .brand-lucy:hover .lucy-open {
+      opacity: 0;
+    }
 
     /* --- CYBERPUNK PINK THEME --- */
     [data-theme='cyberpunk'] .theme-body { background-color: #0d0914; color: #fffbe8; }
@@ -134,7 +160,7 @@ fn render_theme_styles() -> Element(msg) {
     [data-theme='cyberpunk'] pre code .hl-number   { color: #fbbf24 !important; }
     [data-theme='cyberpunk'] pre code .hl-comment  { color: #64748b !important; font-style: italic; }
 
-    /* --- RUST OLIVE THEME (HIGH CONTRAST FIX) --- */
+    /* --- RUST OLIVE THEME --- */
     [data-theme='olive'] .theme-body { background-color: #f2f4ef; color: #1a221b; font-family: ui-sans-serif, system-ui, sans-serif; }
     [data-theme='olive'] .theme-lucies { display: none !important; }
     [data-theme='olive'] .theme-sidebar { background-color: #3b473d; border-color: #2d382e; color: #e8ebe6; }
@@ -142,14 +168,10 @@ fn render_theme_styles() -> Element(msg) {
     [data-theme='olive'] .theme-nav-link { color: #c8d1c5; }
     [data-theme='olive'] .theme-nav-link:hover { background-color: #4a584d; color: #ffffff; }
 
-    /* Force prose headers and text to dark forest charcoal */
     [data-theme='olive'] h1, [data-theme='olive'] h2, [data-theme='olive'] h3, [data-theme='olive'] h4 { color: #232d25 !important; font-weight: 700 !important; }
     [data-theme='olive'] p, [data-theme='olive'] li { color: #2b362c !important; }
 
-    /* High contrast Olive Callout */
     [data-theme='olive'] .callout-box { background-color: #dbe2d7; border-color: #3b473d; color: #1a221b; font-weight: 500; }
-
-    /* High contrast Olive Code Block */
     [data-theme='olive'] .code-block-container { background-color: #e2e8df; border-color: #3b473d; color: #1a221b; }
     [data-theme='olive'] .code-block-container:hover { border-color: #232d25; box-shadow: 0 4px 14px rgba(35, 45, 37, 0.18); }
     [data-theme='olive'] .code-block-bar { background-color: #cbd4c6; border-color: #3b473d; color: #232d25; font-weight: 700; }
@@ -168,7 +190,7 @@ fn render_theme_styles() -> Element(msg) {
     [data-theme='olive'] pre code .hl-number { color: #b45309 !important; }
     [data-theme='olive'] pre code .hl-comment, [data-theme='olive'] .hljs-comment { color: #64748b !important; font-style: italic; }
 
-    /* Sun / Moon Animated Toggle Knob Transitions */
+    /* Sun / Moon Toggle Switcher Knob */
     [data-theme='cyberpunk'] .theme-knob { transform: translateX(0px); }
     [data-theme='olive'] .theme-knob { transform: translateX(24px); }
     [data-theme='cyberpunk'] .icon-sun { opacity: 0; transform: rotate(-90deg) scale(0.5); }
@@ -180,10 +202,7 @@ fn render_theme_styles() -> Element(msg) {
 }
 
 fn render_lucies() -> Element(msg) {
-  let indices = [
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-    22, 23, 24, 25,
-  ]
+  let indices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
   h.div(
     [
@@ -230,14 +249,42 @@ fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
     ],
     [
       h.div([], [
+        // Sidebar Brand Header with Enlarged & Rotatable Interactive Lucy
         h.div(
           [
             a.class(
-              "theme-brand text-xl font-bold mb-6 tracking-widest glitch-hover cursor-default transition-colors",
+              "brand-lucy flex items-center space-x-3 mb-6 cursor-default group",
             ),
           ],
-          [h.text("GLEEBOOK")],
+          [
+            // Icon wrapper enlarged to w-8 h-8 with smooth spring rotation
+            h.div([a.class("brand-lucy-icon relative w-8 h-8 flex-shrink-0")], [
+              h.img([
+                a.src("./assets/lucy.svg"),
+                a.class(
+                  "lucy-open absolute inset-0 w-full h-full object-contain filter drop-shadow-[0_0_8px_#ff1493] transition-opacity duration-200",
+                ),
+              ]),
+              h.img([
+                a.src("./assets/lucyhappy.svg"),
+                a.class(
+                  "lucy-happy absolute inset-0 w-full h-full object-contain filter drop-shadow-[0_0_12px_#ff1493] transition-opacity duration-200",
+                ),
+              ]),
+            ]),
+
+            // Brand Title
+            h.span(
+              [
+                a.class(
+                  "theme-brand text-xl font-bold tracking-widest glitch-hover transition-colors",
+                ),
+              ],
+              [h.text("GLEEBOOK")],
+            ),
+          ],
         ),
+
         h.nav([a.class("space-y-1")], [
           h.ul([], list.map(chapters, render_sidebar_link)),
         ]),
@@ -253,7 +300,6 @@ fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
             ),
           ],
           [
-            // Sliding Knob containing both Sun & Moon SVG icons
             h.div(
               [
                 a.class(
@@ -261,7 +307,6 @@ fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
                 ),
               ],
               [
-                // Moon Icon (Cyberpunk Mode)
                 h.span(
                   [
                     a.class(
@@ -270,7 +315,6 @@ fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
                   ],
                   [h.text("🌙")],
                 ),
-                // Sun Icon (Olive/Light Mode)
                 h.span(
                   [
                     a.class(
@@ -315,28 +359,47 @@ fn render_main(content: Element(msg)) -> Element(msg) {
   ])
 }
 
+/// Generates naturally scattered SVG Lucies across left and right screen borders
 fn create_bubblegum_lucy(index: Int) -> Element(msg) {
-  let top_pos = int_to_string({ index * 23 } % 85 + 5) <> "%"
-  let left_pos = int_to_string({ index * 37 } % 90 + 5) <> "%"
-  let size = int_to_string({ index * 3 } % 4 + 2)
-  let opacity = int_to_string({ index * 10 } % 40 + 30)
-  let anim = "lucy-" <> int_to_string({ index % 3 } + 1)
+  let top_num = { index * 67 + 19 } % 84 + 8
 
-  let class_str =
-    "absolute top-["
-    <> top_pos
-    <> "] left-["
-    <> left_pos
-    <> "] "
-    <> "w-"
-    <> size
-    <> " h-"
-    <> size
-    <> " "
-    <> "bg-[#ffaff3] rounded-sm shadow-[0_0_12px_#ff1493] "
-    <> anim
-    <> " opacity-"
-    <> opacity
+  // Split positions evenly across left (4%–30%) and right (70%–94%)
+  let left_num = case index % 2 {
+    0 -> { index * 37 + 11 } % 26 + 4
+    _ -> { index * 43 + 23 } % 24 + 70
+  }
 
-  h.div([a.class(class_str)], [])
+  let size_px = int_to_string({ index * 7 } % 14 + 18) <> "px"
+  let opacity_val = int_to_string({ index * 9 } % 20 + 20) <> "%"
+
+  let drift_delay = "-" <> int_to_string({ index * 5 } % 17) <> "s"
+  let blink_delay = "-" <> int_to_string({ index * 13 } % 19 / 2) <> "s"
+  let anim_class = "lucy-" <> int_to_string({ index % 3 } + 1)
+
+  h.div(
+    [
+      a.class("absolute pointer-events-none " <> anim_class),
+      a.style("top", int_to_string(top_num) <> "%"),
+      a.style("left", int_to_string(left_num) <> "%"),
+      a.style("width", size_px),
+      a.style("height", size_px),
+      a.style("opacity", opacity_val),
+      a.style("animation-delay", drift_delay),
+    ],
+    [
+      h.img([
+        a.src("./assets/lucy.svg"),
+        a.class(
+          "absolute inset-0 w-full h-full object-contain filter drop-shadow-[0_0_6px_rgba(255,20,147,0.4)]",
+        ),
+      ]),
+      h.img([
+        a.src("./assets/lucyhappy.svg"),
+        a.class(
+          "lucy-blink-overlay absolute inset-0 w-full h-full object-contain filter drop-shadow-[0_0_6px_rgba(255,20,147,0.4)]",
+        ),
+        a.style("animation-delay", blink_delay),
+      ]),
+    ],
+  )
 }

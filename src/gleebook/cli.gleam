@@ -39,20 +39,20 @@ pub fn build() -> glint.Command(Nil) {
 
   info("Building book...")
 
-  // 1. Setup build directory
-  let assert Ok(_) = simplifile.create_directory_all("build")
+  // 1. Ensure target directory structure exists
+  let assert Ok(_) = simplifile.create_directory_all("build/gleebook/assets")
 
-  // 2. Create mock chapters to see the sidebar in action
+  // 2. Copy assets so they live at build/gleebook/assets/
+  let _ = simplifile.copy_directory("assets", "build/gleebook/assets")
+
   let mock_chapters = [
     Chapter("Introduction", "index.html", []),
     Chapter("Getting Started", "setup.html", []),
     Chapter("Advanced Gleam", "advanced.html", []),
   ]
 
-  // Default initial theme (user can toggle in browser via sidebar button)
   let initial_theme = layout.CyberpunkPink
 
-  // 3. Components now style themselves dynamically via CSS data-theme!
   let mock_content =
     h.div([], [
       h.h1([], [h.text("Welcome to Gleebook")]),
@@ -74,7 +74,6 @@ pub fn build() -> glint.Command(Nil) {
       components.code_block("bash", "gleam run -m gleebook build"),
     ])
 
-  // 4. Render layout with default theme
   let page =
     layout.render_page(
       "Gleebook Preview",
@@ -83,13 +82,12 @@ pub fn build() -> glint.Command(Nil) {
       initial_theme,
     )
 
-  // 5. Convert Lustre elements to an HTML string
   let html_string = element.to_document_string(page)
 
-  // 6. Write it to disk
-  let assert Ok(_) = simplifile.write("build/index.html", html_string)
+  // 3. Write index.html right inside build/gleebook/
+  let assert Ok(_) = simplifile.write("build/gleebook/index.html", html_string)
 
-  success("Build complete! Open build/index.html in your browser.")
+  success("Build complete! Open build/gleebook/index.html in your browser.")
 }
 
 pub fn info(message: String) {
