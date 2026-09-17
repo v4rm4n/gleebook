@@ -1,3 +1,5 @@
+// src/gleebook.gleam
+
 import argv
 import gleebook/cli
 import glint

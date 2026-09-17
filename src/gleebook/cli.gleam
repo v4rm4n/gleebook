@@ -2,7 +2,12 @@
 
 import gleam/io
 import gleam_community/ansi
+import gleebook/core.{Chapter}
+import gleebook_web/components
+import gleebook_web/layout
 import glint
+import lustre/element
+import lustre/element/html as h
 import simplifile
 
 pub fn init() -> glint.Command(Nil) {
@@ -34,17 +39,49 @@ pub fn build() -> glint.Command(Nil) {
 
   info("Building book...")
 
-  let summary_result = simplifile.read(from: "book/SUMMARY.md")
+  // 1. Setup build directory
+  let assert Ok(_) = simplifile.create_directory_all("build")
 
-  case summary_result {
-    Ok(_markdown) -> {
-      success("Found SUMMARY.md! Ready to parse.")
-      // TODO: Parse the chapters!
-    }
-    Error(_) -> {
-      error("Could not find book/SUMMARY.md. Did you run `gleebook init`?")
-    }
-  }
+  // 2. Create mock chapters to see the sidebar in action
+  let mock_chapters = [
+    Chapter("Introduction", "index.html", []),
+    Chapter("Getting Started", "setup.html", []),
+    Chapter("Advanced Gleam", "advanced.html", []),
+  ]
+
+  // 3. Create some dummy content using your new standard components!
+  let mock_content =
+    h.div([], [
+      h.h1([], [h.text("Welcome to Gleebook")]),
+      h.p([], [
+        h.text(
+          "This is what your beautifully rendered markdown will look like. Notice how the typography plugin automatically spaces and styles paragraphs, headers, and links!",
+        ),
+      ]),
+
+      components.callout(
+        "Pro Tip: You can build beautiful reusable UI components in Lustre and map them directly to Markdown nodes!",
+      ),
+
+      // Using your shiny new code block component
+      components.code_block(
+        "gleam",
+        "pub fn main() {\n  io.println(\"Hello, contour!\")\n}",
+      ),
+
+      components.code_block("bash", "gleam run -m gleebook build"),
+    ])
+
+  // 4. Render the layout
+  let page = layout.render_page("Gleebook Preview", mock_chapters, mock_content)
+
+  // 5. Convert Lustre elements to an HTML string
+  let html_string = element.to_document_string(page)
+
+  // 6. Write it to disk
+  let assert Ok(_) = simplifile.write("build/index.html", html_string)
+
+  success("Build complete! Open build/index.html in your browser.")
 }
 
 pub fn info(message: String) {
