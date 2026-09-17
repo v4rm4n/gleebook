@@ -54,12 +54,61 @@ pub fn render_page(
         ),
         h.script([], "hljs.highlightAll();"),
 
+        // Client-side controller for localStorage, theme, and sidebar resizing/collapsing
         h.script(
           [],
           "
           const savedTheme = localStorage.getItem('gleebook-theme');
           if (savedTheme) {
             document.documentElement.setAttribute('data-theme', savedTheme);
+          }
+
+          document.addEventListener('DOMContentLoaded', () => {
+            const sidebar = document.getElementById('sidebar');
+            const handle = document.getElementById('sidebar-resizer');
+            const savedWidth = localStorage.getItem('gleebook-sidebar-width');
+            const isCollapsed = localStorage.getItem('gleebook-sidebar-collapsed') === 'true';
+
+            if (sidebar) {
+              if (savedWidth && !isCollapsed) {
+                sidebar.style.width = savedWidth + 'px';
+              }
+              if (isCollapsed) {
+                sidebar.classList.add('collapsed');
+              }
+            }
+
+            if (handle && sidebar) {
+              let isResizing = false;
+
+              handle.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+              });
+
+              document.addEventListener('mousemove', (e) => {
+                if (!isResizing) return;
+                const newWidth = Math.max(160, Math.min(e.clientX, 480));
+                sidebar.style.width = newWidth + 'px';
+                localStorage.setItem('gleebook-sidebar-width', newWidth);
+              });
+
+              document.addEventListener('mouseup', () => {
+                if (isResizing) {
+                  isResizing = false;
+                  document.body.style.cursor = '';
+                  document.body.style.userSelect = '';
+                }
+              });
+            }
+          });
+
+          function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            if (!sidebar) return;
+            const collapsed = sidebar.classList.toggle('collapsed');
+            localStorage.setItem('gleebook-sidebar-collapsed', collapsed);
           }
           ",
         ),
@@ -138,10 +187,28 @@ fn render_theme_styles() -> Element(msg) {
       opacity: 0;
     }
 
+    /* Collapsible Sidebar Mechanics */
+    #sidebar {
+      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.05s ease-out;
+      will-change: transform, width;
+    }
+    #sidebar.collapsed {
+      transform: translateX(-100%);
+      position: absolute;
+    }
+
+    /* Resizer Handle Styling */
+    #sidebar-resizer:hover, #sidebar-resizer:active {
+      background-color: rgba(255, 175, 243, 0.4);
+    }
+    [data-theme='olive'] #sidebar-resizer:hover, [data-theme='olive'] #sidebar-resizer:active {
+      background-color: rgba(163, 184, 153, 0.5);
+    }
+
     /* --- CYBERPUNK PINK THEME --- */
     [data-theme='cyberpunk'] .theme-body { background-color: #0d0914; color: #fffbe8; }
     [data-theme='cyberpunk'] .theme-lucies { display: block; }
-    [data-theme='cyberpunk'] .theme-sidebar { background-color: rgba(13, 9, 20, 0.6); border-color: rgba(255, 175, 243, 0.1); backdrop-filter: blur(24px); }
+    [data-theme='cyberpunk'] .theme-sidebar { background-color: rgba(13, 9, 20, 0.7); border-color: rgba(255, 175, 243, 0.15); backdrop-filter: blur(24px); }
     [data-theme='cyberpunk'] .theme-brand { color: #ffaff3; }
     [data-theme='cyberpunk'] .theme-nav-link { color: #94a3b8; }
     [data-theme='cyberpunk'] .theme-nav-link:hover { background-color: rgba(255, 175, 243, 0.1); color: #ffaff3; border-color: rgba(255, 175, 243, 0.2); }
@@ -233,7 +300,7 @@ fn render_lucies() -> Element(msg) {
 }
 
 fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
-  let toggle_js =
+  let toggle_theme_js =
     "
     const current = document.documentElement.getAttribute('data-theme');
     const next = current === 'cyberpunk' ? 'olive' : 'cyberpunk';
@@ -243,47 +310,73 @@ fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
 
   h.aside(
     [
+      a.id("sidebar"),
       a.class(
-        "theme-sidebar w-64 border-r p-4 overflow-y-auto relative z-10 flex flex-col justify-between transition-colors duration-200",
+        "theme-sidebar w-64 border-r p-4 overflow-y-auto relative z-20 flex flex-col justify-between flex-shrink-0 min-w-[160px] max-w-[480px]",
       ),
     ],
     [
-      h.div([], [
-        // Sidebar Brand Header with Enlarged & Rotatable Interactive Lucy
-        h.div(
-          [
-            a.class(
-              "brand-lucy flex items-center space-x-3 mb-6 cursor-default group",
-            ),
-          ],
-          [
-            // Icon wrapper enlarged to w-8 h-8 with smooth spring rotation
-            h.div([a.class("brand-lucy-icon relative w-8 h-8 flex-shrink-0")], [
-              h.img([
-                a.src("./assets/lucy.svg"),
-                a.class(
-                  "lucy-open absolute inset-0 w-full h-full object-contain filter drop-shadow-[0_0_8px_#ff1493] transition-opacity duration-200",
-                ),
-              ]),
-              h.img([
-                a.src("./assets/lucyhappy.svg"),
-                a.class(
-                  "lucy-happy absolute inset-0 w-full h-full object-contain filter drop-shadow-[0_0_12px_#ff1493] transition-opacity duration-200",
-                ),
-              ]),
-            ]),
+      // Resizer Handle Bar
+      h.div(
+        [
+          a.id("sidebar-resizer"),
+          a.class(
+            "absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-[#ffaff3]/40 transition-colors z-30",
+          ),
+        ],
+        [],
+      ),
 
-            // Brand Title
-            h.span(
-              [
-                a.class(
-                  "theme-brand text-xl font-bold tracking-widest glitch-hover transition-colors",
-                ),
-              ],
-              [h.text("GLEEBOOK")],
-            ),
-          ],
-        ),
+      h.div([], [
+        // Sidebar Brand Header & Collapse Action
+        h.div([a.class("flex items-center justify-between mb-6")], [
+          h.div(
+            [
+              a.class(
+                "brand-lucy flex items-center space-x-3 cursor-default group",
+              ),
+            ],
+            [
+              h.div(
+                [a.class("brand-lucy-icon relative w-8 h-8 flex-shrink-0")],
+                [
+                  h.img([
+                    a.src("./assets/lucy.svg"),
+                    a.class(
+                      "lucy-open absolute inset-0 w-full h-full object-contain filter drop-shadow-[0_0_8px_#ff1493] transition-opacity duration-200",
+                    ),
+                  ]),
+                  h.img([
+                    a.src("./assets/lucyhappy.svg"),
+                    a.class(
+                      "lucy-happy absolute inset-0 w-full h-full object-contain filter drop-shadow-[0_0_12px_#ff1493] transition-opacity duration-200",
+                    ),
+                  ]),
+                ],
+              ),
+              h.span(
+                [
+                  a.class(
+                    "theme-brand text-xl font-bold tracking-widest glitch-hover transition-colors truncate",
+                  ),
+                ],
+                [h.text("GLEEBOOK")],
+              ),
+            ],
+          ),
+
+          // Inner Collapse Button
+          h.button(
+            [
+              a.attribute("onclick", "toggleSidebar()"),
+              a.class(
+                "p-1 rounded opacity-60 hover:opacity-100 transition-opacity text-sm cursor-pointer",
+              ),
+              a.attribute("title", "Collapse Sidebar"),
+            ],
+            [h.text("◧")],
+          ),
+        ]),
 
         h.nav([a.class("space-y-1")], [
           h.ul([], list.map(chapters, render_sidebar_link)),
@@ -294,7 +387,7 @@ fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
       h.div([a.class("pt-4 border-t border-slate-700/30 flex justify-center")], [
         h.button(
           [
-            a.attribute("onclick", toggle_js),
+            a.attribute("onclick", toggle_theme_js),
             a.class(
               "relative w-14 h-8 rounded-full bg-slate-800/60 border border-slate-600/40 p-1 cursor-pointer transition-all duration-300 focus:outline-none hover:border-slate-400",
             ),
@@ -303,7 +396,7 @@ fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
             h.div(
               [
                 a.class(
-                  "theme-knob w-6 h-6 rounded-full bg-[#ffaff3] text-slate-900 flex items-center justify-center transition-transform duration-300 shadow-md relative overflow-hidden",
+                  "theme-knob w-6 h-6 rounded-full bg-[##400228] text-slate-900 flex items-center justify-center transition-transform duration-300 shadow-md relative overflow-hidden",
                 ),
               ],
               [
@@ -338,7 +431,7 @@ fn render_sidebar_link(chapter: Chapter) -> Element(msg) {
       [
         a.href(chapter.path),
         a.class(
-          "theme-nav-link block px-3 py-2 rounded-md text-sm font-medium transition-all border border-transparent",
+          "theme-nav-link block px-3 py-2 rounded-md text-sm font-medium transition-all border border-transparent truncate",
         ),
       ],
       [h.text(chapter.title)],
@@ -347,23 +440,41 @@ fn render_sidebar_link(chapter: Chapter) -> Element(msg) {
 }
 
 fn render_main(content: Element(msg)) -> Element(msg) {
-  h.main([a.class("flex-1 overflow-y-auto p-8 lg:p-12 relative z-10")], [
-    h.div(
-      [
-        a.class(
-          "max-w-3xl mx-auto prose dark:prose-invert prose-headings:text-current prose-a:text-current",
-        ),
-      ],
-      [content],
-    ),
-  ])
+  h.main(
+    [
+      a.class(
+        "flex-1 overflow-y-auto p-4 sm:p-8 lg:p-12 relative z-10 min-w-0 max-w-full",
+      ),
+    ],
+    [
+      // Floating Sidebar Expand Trigger Button (visible when sidebar collapsed)
+      h.button(
+        [
+          a.attribute("onclick", "toggleSidebar()"),
+          a.class(
+            "fixed top-4 left-4 z-30 p-2 rounded-md border border-current opacity-70 hover:opacity-100 backdrop-blur-md transition-all cursor-pointer shadow-md text-xs",
+          ),
+          a.attribute("title", "Toggle Sidebar"),
+        ],
+        [h.text("☰")],
+      ),
+
+      h.div(
+        [
+          a.class(
+            "max-w-3xl mx-auto prose dark:prose-invert prose-headings:text-current prose-a:text-current w-full overflow-hidden break-words",
+          ),
+        ],
+        [content],
+      ),
+    ],
+  )
 }
 
 /// Generates naturally scattered SVG Lucies across left and right screen borders
 fn create_bubblegum_lucy(index: Int) -> Element(msg) {
   let top_num = { index * 67 + 19 } % 84 + 8
 
-  // Split positions evenly across left (4%–30%) and right (70%–94%)
   let left_num = case index % 2 {
     0 -> { index * 37 + 11 } % 26 + 4
     _ -> { index * 43 + 23 } % 24 + 70
