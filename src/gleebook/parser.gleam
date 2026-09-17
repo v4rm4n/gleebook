@@ -1,4 +1,4 @@
-// src/gleebook/core.gleam
+// src/gleebook/parser.gleam
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -6,31 +6,61 @@ import gleam/result
 import gleam/string
 import gleebook/core.{type Chapter, Chapter}
 
-/// Parses a `SUMMARY.md` string into a structured list of chapters
 pub fn parse_summary(content: String) -> List(Chapter) {
   content
   |> string.split("\n")
-  |> list_to_chapters([])
+  |> build_tree([])
 }
 
-fn list_to_chapters(lines: List(String), acc: List(Chapter)) -> List(Chapter) {
-  case lines {
-    [] -> list.reverse(acc)
-    [line, ..rest] -> {
-      let trimmed = string.trim(line)
-      case parse_markdown_link(trimmed) {
-        Some(#(title, path, _indent_level)) -> {
-          let chapter = Chapter(title:, path:, children: [])
-          // For now, process flat list; nesting logic merges children based on indent_level
-          list_to_chapters(rest, [chapter, ..acc])
+/// Recursively inserts a chapter into the tree based on its indentation depth
+fn insert_chapter(
+  chapters: List(Chapter),
+  new_chapter: Chapter,
+  target_depth: Int,
+  current_depth: Int,
+) -> List(Chapter) {
+  case chapters {
+    [] -> [new_chapter]
+    _ if current_depth < target_depth -> {
+      // We haven't reached the target depth, so insert into the LAST chapter's children
+      let reversed = list.reverse(chapters)
+      case reversed {
+        [last, ..rest] -> {
+          let updated_last =
+            Chapter(
+              ..last,
+              children: insert_chapter(
+                last.children,
+                new_chapter,
+                target_depth,
+                current_depth + 1,
+              ),
+            )
+          list.reverse([updated_last, ..rest])
         }
-        None -> list_to_chapters(rest, acc)
+        [] -> [new_chapter]
+      }
+    }
+    _ -> list.append(chapters, [new_chapter])
+  }
+}
+
+fn build_tree(lines: List(String), acc: List(Chapter)) -> List(Chapter) {
+  case lines {
+    [] -> acc
+    [line, ..rest] -> {
+      case parse_markdown_link(line) {
+        Some(#(title, path, indent)) -> {
+          let chapter = Chapter(title:, path:, children: [])
+          let new_acc = insert_chapter(acc, chapter, indent, 0)
+          build_tree(rest, new_acc)
+        }
+        None -> build_tree(rest, acc)
       }
     }
   }
 }
 
-/// Helper to parse standard `-[Title](path.md)` links safely
 fn parse_markdown_link(line: String) -> Option(#(String, String, Int)) {
   let indent = get_indent_level(line)
   let trimmed = string.trim_start(line)
@@ -41,7 +71,6 @@ fn parse_markdown_link(line: String) -> Option(#(String, String, Int)) {
     True -> {
       case string.split_once(trimmed, "](") {
         Ok(#(left, right)) -> {
-          // Changed from drop_left to drop_start
           let title = string.drop_start(left, 3)
           let path =
             right
@@ -49,7 +78,6 @@ fn parse_markdown_link(line: String) -> Option(#(String, String, Int)) {
             |> result.map(fn(pair) { pair.0 })
             |> result.unwrap("")
 
-          // Sanitize path extension to .html for generated output
           let html_path = string.replace(path, ".md", ".html")
           Some(#(title, html_path, indent))
         }
@@ -61,7 +89,6 @@ fn parse_markdown_link(line: String) -> Option(#(String, String, Int)) {
 }
 
 fn get_indent_level(line: String) -> Int {
-  // Changed from trim_left to trim_start
   let spaces = string.length(line) - string.length(string.trim_start(line))
   spaces / 2
 }

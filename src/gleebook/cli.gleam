@@ -3,6 +3,7 @@ import gleam/io
 import gleam/list
 import gleam/string
 import gleam_community/ansi
+import gleebook/core
 import gleebook/markdown
 import gleebook/parser
 import gleebook_web/layout
@@ -56,8 +57,11 @@ pub fn build() -> glint.Command(Nil) {
   let chapters = parser.parse_summary(summary_content)
   let initial_theme = layout.CyberpunkPink
 
+  // Flatten the tree so we iterate over every single chapter regardless of depth
+  let all_chapters = flatten_chapters(chapters)
+
   let has_errors =
-    list.fold(chapters, False, fn(had_error, chapter) {
+    list.fold(all_chapters, False, fn(had_error, chapter) {
       let md_filename = string.replace(chapter.path, ".html", ".md")
       let source_path = "book/" <> md_filename
 
@@ -83,6 +87,18 @@ pub fn build() -> glint.Command(Nil) {
 
       let html_string = element.to_document_string(page)
       let out_path = "build/gleebook/" <> chapter.path
+
+      // --- NEW: Create the nested target directories dynamically ---
+      let target_dir =
+        out_path
+        |> string.split("/")
+        |> list.reverse
+        |> list.drop(1)
+        |> list.reverse
+        |> string.join("/")
+
+      let _ = simplifile.create_directory_all(target_dir)
+      // -----------------------------------------------------------
 
       case simplifile.write(out_path, html_string) {
         Ok(_) -> {
@@ -118,4 +134,8 @@ pub fn success(message: String) {
 
 pub fn error(message: String) {
   io.println(ansi.red("✖ " <> message))
+}
+
+fn flatten_chapters(chapters: List(core.Chapter)) -> List(core.Chapter) {
+  list.flat_map(chapters, fn(c) { [c, ..flatten_chapters(c.children)] })
 }

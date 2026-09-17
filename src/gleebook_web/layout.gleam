@@ -1,6 +1,7 @@
 // src/gleebook_web/layout.gleam
 import gleam/int.{to_string as int_to_string}
 import gleam/list
+import gleam/string
 import gleebook/core.{type Chapter}
 import lustre/attribute as a
 import lustre/element.{type Element}
@@ -22,6 +23,8 @@ pub fn render_page(
     CyberpunkPink -> "cyberpunk"
     RustOlive -> "olive"
   }
+
+  let base_path = get_base_path(current_path)
 
   h.html(
     [
@@ -153,8 +156,8 @@ pub fn render_page(
           ),
         ],
         [
-          render_lucies(),
-          render_sidebar(chapters, current_path),
+          render_lucies(base_path),
+          render_sidebar(chapters, current_path, base_path),
           render_main(content),
         ],
       ),
@@ -308,7 +311,7 @@ fn render_theme_styles() -> Element(msg) {
   )
 }
 
-fn render_lucies() -> Element(msg) {
+fn render_lucies(base_path: String) -> Element(msg) {
   let indices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
   h.div(
@@ -334,7 +337,7 @@ fn render_lucies() -> Element(msg) {
         ],
         [],
       ),
-      ..list.map(indices, create_bubblegum_lucy)
+      ..list.map(indices, fn(idx) { create_bubblegum_lucy(idx, base_path) })
     ],
   )
 }
@@ -342,6 +345,7 @@ fn render_lucies() -> Element(msg) {
 fn render_sidebar(
   chapters: List(Chapter),
   current_path: String,
+  base_path: String,
 ) -> Element(msg) {
   let toggle_theme_js =
     "
@@ -392,13 +396,13 @@ fn render_sidebar(
                 [a.class("brand-lucy-icon relative w-8 h-8 flex-shrink-0")],
                 [
                   h.img([
-                    a.src("./assets/lucy.svg"),
+                    a.src(base_path <> "./assets/lucy.svg"),
                     a.class(
                       "lucy-open absolute inset-0 w-full h-full object-contain transition-opacity duration-200",
                     ),
                   ]),
                   h.img([
-                    a.src("./assets/lucyhappy.svg"),
+                    a.src(base_path <> "./assets/lucyhappy.svg"),
                     a.class(
                       "lucy-happy absolute inset-0 w-full h-full object-contain transition-opacity duration-200",
                     ),
@@ -431,7 +435,9 @@ fn render_sidebar(
         h.nav([a.class("space-y-1")], [
           h.ul(
             [],
-            list.map(chapters, fn(c) { render_sidebar_link(c, current_path) }),
+            list.map(chapters, fn(c) {
+              render_sidebar_link(c, current_path, base_path)
+            }),
           ),
         ]),
       ]),
@@ -448,7 +454,7 @@ fn render_sidebar(
             h.div(
               [
                 a.class(
-                  "theme-knob w-6 h-6 rounded-full bg-[#ffaff3] text-slate-900 flex items-center justify-center transition-transform duration-300 shadow-md relative overflow-hidden",
+                  "theme-knob w-6 h-6 rounded-full bg-[##400228] text-slate-900 flex items-center justify-center transition-transform duration-300 shadow-md relative overflow-hidden",
                 ),
               ],
               [
@@ -477,7 +483,11 @@ fn render_sidebar(
   )
 }
 
-fn render_sidebar_link(chapter: Chapter, current_path: String) -> Element(msg) {
+fn render_sidebar_link(
+  chapter: Chapter,
+  current_path: String,
+  base_path: String,
+) -> Element(msg) {
   let is_active = chapter.path == current_path
 
   let base_classes =
@@ -487,11 +497,30 @@ fn render_sidebar_link(chapter: Chapter, current_path: String) -> Element(msg) {
     False -> "theme-nav-link"
   }
 
-  h.li([], [
-    h.a([a.href(chapter.path), a.class(base_classes <> state_classes)], [
-      h.text(chapter.title),
-    ]),
-  ])
+  let link =
+    h.a(
+      [
+        a.href(base_path <> chapter.path),
+        a.class(base_classes <> state_classes),
+      ],
+      [
+        h.text(chapter.title),
+      ],
+    )
+
+  // Recursively render children if they exist
+  let children_ui = case chapter.children {
+    [] -> element.none()
+    children ->
+      h.ul(
+        [a.class("pl-4 ml-2 mt-1 space-y-1 border-l border-slate-700/30")],
+        list.map(children, fn(c) {
+          render_sidebar_link(c, current_path, base_path)
+        }),
+      )
+  }
+
+  h.li([], [link, children_ui])
 }
 
 fn render_main(content: Element(msg)) -> Element(msg) {
@@ -525,7 +554,7 @@ fn render_main(content: Element(msg)) -> Element(msg) {
   )
 }
 
-fn create_bubblegum_lucy(index: Int) -> Element(msg) {
+fn create_bubblegum_lucy(index: Int, base_path: String) -> Element(msg) {
   let top_num = { index * 67 + 19 } % 84 + 8
 
   let left_num = case index % 2 {
@@ -552,13 +581,15 @@ fn create_bubblegum_lucy(index: Int) -> Element(msg) {
     ],
     [
       h.img([
-        a.src("./assets/lucy.svg"),
+        a.src(base_path <> "assets/lucy.svg"),
+        // <-- Prepended base_path
         a.class(
           "absolute inset-0 w-full h-full object-contain filter drop-shadow-[0_0_6px_rgba(255,20,147,0.4)]",
         ),
       ]),
       h.img([
-        a.src("./assets/lucyhappy.svg"),
+        a.src(base_path <> "assets/lucyhappy.svg"),
+        // <-- Prepended base_path
         a.class(
           "lucy-blink-overlay absolute inset-0 w-full h-full object-contain filter drop-shadow-[0_0_6px_rgba(255,20,147,0.4)]",
         ),
@@ -566,4 +597,12 @@ fn create_bubblegum_lucy(index: Int) -> Element(msg) {
       ]),
     ],
   )
+}
+
+fn get_base_path(current_path: String) -> String {
+  let depth = current_path |> string.split("/") |> list.length
+  case depth {
+    0 | 1 -> "./"
+    n -> string.repeat("../", n - 1)
+  }
 }
