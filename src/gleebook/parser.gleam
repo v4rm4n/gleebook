@@ -6,10 +6,23 @@ import gleam/result
 import gleam/string
 import gleebook/core.{type Chapter, Chapter}
 
-pub fn parse_summary(content: String) -> List(Chapter) {
-  content
-  |> string.split("\n")
-  |> build_tree([])
+pub fn parse_summary(content: String) -> #(String, List(Chapter)) {
+  let lines = string.split(content, "\n")
+
+  // Extract title from the first H1, default to "GLEEBOOK" if none exists
+  let title =
+    list.find_map(lines, fn(line) {
+      let trimmed = string.trim(line)
+      case string.starts_with(trimmed, "# ") {
+        True -> Ok(string.drop_start(trimmed, 2) |> string.trim)
+        False -> Error(Nil)
+      }
+    })
+    |> result.unwrap("GLEEBOOK")
+
+  let chapters = build_tree(lines, [])
+
+  #(title, chapters)
 }
 
 /// Recursively inserts a chapter into the tree based on its indentation depth

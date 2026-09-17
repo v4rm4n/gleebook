@@ -75,10 +75,10 @@ pub fn do_build() {
     }
   }
 
-  let chapters = parser.parse_summary(summary_content)
+  // 1. Unpack the tuple!
+  let #(book_title, chapters) = parser.parse_summary(summary_content)
   let initial_theme = layout.CyberpunkPink
 
-  // Flatten the tree so we iterate over every single chapter regardless of depth
   let all_chapters = flatten_chapters(chapters)
 
   let has_errors =
@@ -86,6 +86,7 @@ pub fn do_build() {
       let md_filename = string.replace(chapter.path, ".html", ".md")
       let source_path = "book/" <> md_filename
 
+      // ... (keep file reading and markdown parsing exactly the same) ...
       let #(page_content, is_missing) = case simplifile.read(source_path) {
         Ok(content) -> #(content, False)
         Error(_) -> {
@@ -97,13 +98,16 @@ pub fn do_build() {
       let parsed_markdown = markdown.render(page_content)
       let dynamic_content = h.div([a.class("mt-4")], [parsed_markdown])
 
-      // Find neighbors from the flattened list
       let #(prev_chap, next_chap) =
         find_neighbors(all_chapters, chapter.path, None)
 
+      // 2. Pass the dynamic book_title into render_page
       let page =
         layout.render_page(
-          chapter.title <> " - Gleebook",
+          chapter.title <> " - " <> book_title,
+          // Browser tab title
+          book_title,
+          // New Sidebar Title parameter
           chapters,
           chapter.path,
           dynamic_content,
@@ -144,6 +148,12 @@ pub fn do_build() {
       }
     })
 
+  // Write a random version number to trigger Live Reload in the browser
+  let _ =
+    simplifile.write(
+      "build/gleebook/version.txt",
+      int.to_string(int.random(1_000_000_000)),
+    )
   case has_errors {
     True -> error("Build completed with errors. Check the logs above.")
     False ->

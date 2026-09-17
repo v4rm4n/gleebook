@@ -171,13 +171,11 @@ fn render_inline(inline: Inline) -> Element(msg) {
       let dest_str = resolve_destination(destination)
       let alt_text = extract_text_from_inlines(content)
 
-      let is_youtube =
-        string.contains(dest_str, "youtube.com")
-        || string.contains(dest_str, "youtu.be")
-
-      case is_youtube {
-        True -> components.youtube_embed(dest_str)
-        False -> {
+      // Use the new youtube_id function to check if it's a video
+      case components.youtube_id(dest_str) {
+        Some(id) -> components.youtube_embed(id, alt_text)
+        None -> {
+          // If it's not a YouTube link, render a standard image
           h.img([
             a.src(dest_str),
             a.alt(alt_text),

@@ -15,6 +15,7 @@ pub type Theme {
 
 pub fn render_page(
   title: String,
+  book_title: String,
   chapters: List(Chapter),
   current_path: String,
   content: Element(msg),
@@ -146,6 +147,24 @@ pub fn render_page(
         render_theme_styles(),
 
         h.link([a.rel("stylesheet"), a.href(base_path <> "custom.css")]),
+
+        h.script([], "
+          if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            let currentVersion = null;
+            setInterval(() => {
+              // FIX: Appended ?t=Date.now() to brutally bypass browser caching
+              fetch('" <> base_path <> "version.txt?t=' + Date.now(), { cache: 'no-store' })
+                .then(r => r.status === 200 ? r.text() : null)
+                .then(v => {
+                  if (v && currentVersion === null) {
+                    currentVersion = v;
+                  } else if (v && currentVersion !== v) {
+                    window.location.reload();
+                  }
+                }).catch(() => {});
+            }, 1000);
+          }
+          "),
       ]),
 
       h.body(
@@ -156,7 +175,8 @@ pub fn render_page(
         ],
         [
           render_lucies(base_path),
-          render_sidebar(chapters, current_path, base_path),
+          render_sidebar(book_title, chapters, current_path, base_path),
+          // <-- Pass it down
           render_main(content, prev, next, base_path),
         ],
       ),
@@ -352,6 +372,7 @@ fn render_lucies(base_path: String) -> Element(msg) {
 }
 
 fn render_sidebar(
+  book_title: String,
   chapters: List(Chapter),
   current_path: String,
   base_path: String,
@@ -423,7 +444,8 @@ fn render_sidebar(
                     "theme-brand text-xl font-bold tracking-widest glitch-hover transition-colors truncate",
                   ),
                 ],
-                [h.text("GLEEBOOK")],
+                // Uppercase the user's title to match the original vibe!
+                [h.text(string.uppercase(book_title))],
               ),
             ],
           ),
@@ -495,8 +517,11 @@ fn render_sidebar_link(
 ) -> Element(msg) {
   let is_active = chapter.path == current_path
 
+  // Check if we are currently inside this folder or any of its sub-folders
+  let in_active_trail = is_active_trail(chapter, current_path)
+
   let base_classes =
-    "block px-3 py-2 rounded-md text-sm font-medium transition-all border border-transparent truncate "
+    "block px-3 py-2 rounded-md text-sm font-medium transition-all border border-transparent truncate pr-8 "
   let state_classes = case is_active {
     True -> "theme-nav-link-active"
     False -> "theme-nav-link"
@@ -511,18 +536,58 @@ fn render_sidebar_link(
       [h.text(chapter.title)],
     )
 
-  let children_ui = case chapter.children {
-    [] -> element.none()
-    children ->
-      h.ul(
-        [a.class("pl-4 ml-2 mt-1 space-y-1 border-l border-slate-700/30")],
-        list.map(children, fn(c) {
-          render_sidebar_link(c, current_path, base_path)
-        }),
-      )
-  }
+  case chapter.children {
+    [] -> h.li([], [link])
+    children -> {
+      let details_attrs = case in_active_trail {
+        True -> [a.class("group relative"), a.attribute("open", "true")]
+        False -> [a.class("group relative")]
+      }
 
-  h.li([], [link, children_ui])
+      h.li([], [
+        h.details(details_attrs, [
+          h.summary(
+            [
+              a.class(
+                "list-none [&::-webkit-details-marker]:hidden cursor-pointer relative",
+              ),
+            ],
+            [
+              link,
+              h.div(
+                [
+                  a.class(
+                    "absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center opacity-40 group-hover:opacity-100 transition-opacity",
+                  ),
+                ],
+                [
+                  h.span(
+                    [
+                      a.class(
+                        "inline-block text-sm transition-transform duration-200 group-open:rotate-90",
+                      ),
+                    ],
+                    [h.text("▶")],
+                  ),
+                ],
+              ),
+            ],
+          ),
+          // FIX: Added the h.ul block back in so children are actually rendered!
+          h.ul(
+            [
+              a.class(
+                "pl-4 ml-2 mt-1 space-y-1 border-l border-slate-700/30 overflow-hidden",
+              ),
+            ],
+            list.map(children, fn(c) {
+              render_sidebar_link(c, current_path, base_path)
+            }),
+          ),
+        ]),
+      ])
+    }
+  }
 }
 
 fn render_main(
@@ -664,5 +729,15 @@ fn get_base_path(current_path: String) -> String {
   case depth {
     0 | 1 -> "./"
     n -> string.repeat("../", n - 1)
+  }
+}
+
+fn is_active_trail(chapter: Chapter, current_path: String) -> Bool {
+  case chapter.path == current_path {
+    True -> True
+    False ->
+      list.any(chapter.children, fn(child) {
+        is_active_trail(child, current_path)
+      })
   }
 }

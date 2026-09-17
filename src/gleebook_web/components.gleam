@@ -2,7 +2,7 @@
 
 import contour
 import gleam/list
-import gleam/result
+import gleam/option.{type Option}
 import gleam/string
 import lustre/attribute as a
 import lustre/element.{type Element}
@@ -118,44 +118,42 @@ pub fn callout(text: String) -> Element(msg) {
   )
 }
 
-pub fn youtube_embed(url: String) -> Element(msg) {
-  let video_id = case string.split(url, "v=") {
-    [_, id_part, ..] ->
-      id_part |> string.split("&") |> list.first |> result.unwrap(id_part)
-    _ ->
-      case string.split(url, "youtu.be/") {
-        [_, id_part, ..] ->
-          id_part |> string.split("?") |> list.first |> result.unwrap(id_part)
-        _ ->
-          case string.split(url, "embed/") {
-            [_, id_part, ..] ->
-              id_part
-              |> string.split("?")
-              |> list.first
-              |> result.unwrap(id_part)
-            _ -> "dQw4w9WgXcQ"
-          }
-      }
-  }
+/// Pull the 11-char id out of any common YouTube URL shape.
+pub fn youtube_id(url: String) -> Option(String) {
+  let markers = [
+    "youtube.com/watch?v=", "youtube.com/embed/", "youtube.com/shorts/",
+    "youtube.com/live/", "youtube-nocookie.com/embed/", "youtu.be/",
+  ]
 
-  // Use a completely bare URL. No origin parameters, no nocookie domain.
-  let clean_embed_url = "https://www.youtube.com/embed/" <> video_id
+  list.find_map(markers, fn(m) { string.split_once(url, m) })
+  |> option.from_result
+  |> option.map(fn(pair) {
+    pair.1
+    |> string.to_graphemes
+    |> list.take_while(fn(c) { !list.contains(["&", "?", "#", "/", ")"], c) })
+    |> string.concat
+  })
+}
 
+pub fn youtube_embed(id: String, title: String) -> Element(msg) {
   h.div(
     [
       a.class(
-        "aspect-video w-full rounded-lg overflow-hidden my-8 shadow-lg border border-slate-700/30 bg-black",
+        "not-prose my-6 aspect-video w-full overflow-hidden rounded-xl border code-block-container",
       ),
     ],
     [
       h.iframe([
-        a.src(clean_embed_url),
-        a.class("w-full h-full border-0"),
+        a.src("https://www.youtube-nocookie.com/embed/" <> id),
+        a.attribute("title", title),
+        a.attribute("loading", "lazy"),
+        a.attribute("referrerpolicy", "strict-origin-when-cross-origin"),
         a.attribute(
           "allow",
-          "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture",
+          "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share",
         ),
-        a.attribute("allowfullscreen", "true"),
+        a.attribute("allowfullscreen", ""),
+        a.class("w-full h-full"),
       ]),
     ],
   )
