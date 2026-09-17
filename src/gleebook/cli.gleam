@@ -11,6 +11,7 @@ import gleam_community/ansi
 import gleebook/core
 import gleebook/markdown
 import gleebook/parser
+import gleebook/template
 import gleebook_web/layout
 import glint
 import lustre/attribute as a
@@ -27,9 +28,19 @@ pub fn init() -> glint.Command(Nil) {
 
   info("Initializing new book...")
 
-  case do_init() {
-    Ok(_) -> success("Created book/ directory with sample pages!")
-    Error(_) -> error("Failed to initialize the book.")
+  case template.scaffold("book") {
+    Ok(written) -> {
+      list.each(written, fn(path) { info("Created " <> path) })
+      success(
+        "Book scaffolded! Run `gleam run -m gleebook serve` to preview it.",
+      )
+    }
+    Error(template.AlreadyExists(path)) ->
+      error(path <> " already exists; refusing to overwrite an existing book.")
+    Error(template.WriteFailed(path, reason)) ->
+      error(
+        "Could not write " <> path <> ": " <> simplifile.describe_error(reason),
+      )
   }
 }
 
@@ -52,8 +63,10 @@ pub fn build() -> glint.Command(Nil) {
 pub fn do_build() {
   info("Building book...")
 
-  let assert Ok(_) = simplifile.create_directory_all("build/gleebook/assets")
-  let _ = simplifile.copy_directory("assets", "build/gleebook/assets")
+  // 1. Ensure the output directory exists as a proper folder
+  let _ = simplifile.create_directory_all("build/gleebook")
+
+  copy_assets()
 
   // Safely copy custom.css ONLY if the user has actually created it
   case simplifile.is_file("book/custom.css") {
@@ -75,18 +88,16 @@ pub fn do_build() {
     }
   }
 
-  // 1. Unpack the tuple!
   let #(book_title, chapters) = parser.parse_summary(summary_content)
   let initial_theme = layout.CyberpunkPink
 
-  let all_chapters = flatten_chapters(chapters)
+  let all_chapters = flatten_pages(chapters)
 
   let has_errors =
     list.fold(all_chapters, False, fn(had_error, chapter) {
       let md_filename = string.replace(chapter.path, ".html", ".md")
       let source_path = "book/" <> md_filename
 
-      // ... (keep file reading and markdown parsing exactly the same) ...
       let #(page_content, is_missing) = case simplifile.read(source_path) {
         Ok(content) -> #(content, False)
         Error(_) -> {
@@ -101,13 +112,10 @@ pub fn do_build() {
       let #(prev_chap, next_chap) =
         find_neighbors(all_chapters, chapter.path, None)
 
-      // 2. Pass the dynamic book_title into render_page
       let page =
         layout.render_page(
           chapter.title <> " - " <> book_title,
-          // Browser tab title
           book_title,
-          // New Sidebar Title parameter
           chapters,
           chapter.path,
           dynamic_content,
@@ -119,7 +127,7 @@ pub fn do_build() {
       let html_string = element.to_document_string(page)
       let out_path = "build/gleebook/" <> chapter.path
 
-      // --- NEW: Create the nested target directories dynamically ---
+      // Create nested target subdirectories dynamically
       let target_dir =
         out_path
         |> string.split("/")
@@ -129,31 +137,30 @@ pub fn do_build() {
         |> string.join("/")
 
       let _ = simplifile.create_directory_all(target_dir)
-      // -----------------------------------------------------------
 
       case simplifile.write(out_path, html_string) {
         Ok(_) -> {
           info("Compiled " <> out_path)
           had_error || is_missing
         }
-        Error(_) -> {
+        Error(err) -> {
           error(
-            "Markdown routing failed: Invalid link target for '"
-            <> chapter.title
-            <> "' -> "
-            <> out_path,
+            "Failed writing '"
+            <> out_path
+            <> "': "
+            <> simplifile.describe_error(err),
           )
           True
         }
       }
     })
 
-  // Write a random version number to trigger Live Reload in the browser
   let _ =
     simplifile.write(
       "build/gleebook/version.txt",
       int.to_string(int.random(1_000_000_000)),
     )
+
   case has_errors {
     True -> error("Build completed with errors. Check the logs above.")
     False ->
@@ -171,10 +178,6 @@ pub fn success(message: String) {
 
 pub fn error(message: String) {
   io.println(ansi.red("✖ " <> message))
-}
-
-fn flatten_chapters(chapters: List(core.Chapter)) -> List(core.Chapter) {
-  list.flat_map(chapters, fn(c) { [c, ..flatten_chapters(c.children)] })
 }
 
 fn find_neighbors(
@@ -269,5 +272,77 @@ fn watcher_loop(last_stats: dict.Dict(String, Int)) {
       watcher_loop(current_stats)
     }
     False -> watcher_loop(current_stats)
+  }
+}
+
+/// Depth-first list of chapters that actually have a page.
+/// Label-only entries (`- [outer]()`) are dropped, but their children are kept.
+fn flatten_pages(chapters: List(core.Chapter)) -> List(core.Chapter) {
+  list.flat_map(chapters, fn(c) {
+    let rest = flatten_pages(c.children)
+    case c.path {
+      "" -> rest
+      _ -> [c, ..rest]
+    }
+  })
+}
+
+/// Built-in assets (Lucy) come from the package's priv/ directory; the book's
+/// own assets/ directory is layered on top so authors can add or override files.
+fn copy_assets() -> Nil {
+  let target = "build/gleebook/assets"
+
+  // 1. Ensure the parent output directory exists
+  let _ = simplifile.create_directory_all("build/gleebook")
+
+  // 2. Delete the target assets folder if it exists from a previous build
+  // (simplifile.copy_directory requires the destination to NOT exist beforehand!)
+  let _ = simplifile.delete(target)
+
+  // 3. Copy built-in assets from priv/assets into the target
+  case wisp.priv_directory("gleebook") {
+    Ok(priv) -> {
+      let priv_assets = priv <> "/assets"
+      case simplifile.is_directory(priv_assets) {
+        Ok(True) -> {
+          let _ = simplifile.copy_directory(priv_assets, target)
+          Nil
+        }
+        _ -> Nil
+      }
+    }
+    Error(_) -> Nil
+  }
+
+  // 4. Ensure target directory exists in case priv/assets was empty
+  let _ = simplifile.create_directory_all(target)
+
+  // 5. Safely copy user-provided assets/ on top of built-in assets
+  case simplifile.is_directory("assets") {
+    Ok(True) -> {
+      case simplifile.get_files("assets") {
+        Ok(files) -> {
+          list.each(files, fn(file) {
+            let src_file = "assets/" <> file
+            let dest_file = target <> "/" <> file
+
+            // Ensure nested directories inside assets/ are created
+            let dest_dir =
+              dest_file
+              |> string.split("/")
+              |> list.reverse
+              |> list.drop(1)
+              |> list.reverse
+              |> string.join("/")
+
+            let _ = simplifile.create_directory_all(dest_dir)
+            let _ = simplifile.copy_file(src_file, dest_file)
+          })
+          info("Included assets/ from the book.")
+        }
+        Error(_) -> Nil
+      }
+    }
+    _ -> Nil
   }
 }

@@ -74,7 +74,6 @@ pub fn code_block(language: String, raw_code: String) -> Element(msg) {
               [h.text(language)],
             ),
           ]),
-
           h.button(
             [
               a.attribute("onclick", js_copy_handler),
@@ -86,8 +85,6 @@ pub fn code_block(language: String, raw_code: String) -> Element(msg) {
           ),
         ],
       ),
-
-      // FIX: Added !border-0, !bg-transparent, and !m-0 to override prose defaults
       h.pre(
         [
           a.class(
@@ -100,21 +97,16 @@ pub fn code_block(language: String, raw_code: String) -> Element(msg) {
   )
 }
 
-pub fn callout(text: String) -> Element(msg) {
+/// A callout now takes already-rendered children instead of a plain string,
+/// so bold / links / code inside a blockquote survive.
+pub fn callout(children: List(Element(msg))) -> Element(msg) {
   h.div(
     [
       a.class(
-        "callout-box relative my-6 p-4 pl-5 border-l-4 rounded-r-md shadow-sm w-full max-w-full overflow-hidden break-words",
+        "callout-box relative my-6 p-4 pl-5 border-l-4 rounded-r-md shadow-sm w-full max-w-full overflow-hidden break-words text-xs sm:text-sm font-medium tracking-wide [&>p]:my-0 [&>p+p]:mt-3",
       ),
     ],
-    [
-      h.p(
-        [a.class("text-xs sm:text-sm font-medium tracking-wide break-words")],
-        [
-          h.text(text),
-        ],
-      ),
-    ],
+    children,
   )
 }
 

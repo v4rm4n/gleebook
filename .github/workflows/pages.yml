@@ -1,0 +1,57 @@
+# .github/workflows/pages.yml
+#
+# Build the book with gleebook and publish build/gleebook/ to GitHub Pages.
+# Requires: Settings -> Pages -> Source set to "GitHub Actions".
+
+name: Deploy book to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deployment at a time; cancel superseded runs.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          gleam-version: "1.18"
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/packages
+          key: gleam-${{ runner.os }}-${{ hashFiles('manifest.toml') }}
+
+      - name: Build the book
+        run: |
+          gleam deps download
+          gleam run -m gleebook build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/gleebook
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

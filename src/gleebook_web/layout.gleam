@@ -236,7 +236,7 @@ fn render_theme_styles() -> Element(msg) {
 
     /* Core Application Variables */
     .theme-body { background-color: var(--gb-bg); color: var(--gb-text); }
-    .theme-sidebar { background-color: var(--gb-sidebar); border-color: var(--gb-border); backdrop-filter: blur(24px); }
+    .theme-sidebar { background-color: var(--gb-sidebar); border-color: var(--gb-border); backdrop-filter: blur(24px); color: var(--gb-nav-text); }
     .theme-brand { color: var(--gb-accent); }
     
     /* Background Elements Display */
@@ -263,6 +263,12 @@ fn render_theme_styles() -> Element(msg) {
     .prose hr { border-color: var(--gb-border) !important; opacity: 1; border-top-width: 2px; }
     .prose pre { background-color: var(--gb-code-bg); border: 1px solid var(--gb-border); color: var(--gb-text); }
     .prose a { color: var(--gb-accent) !important; }
+
+    /* Explicit Table Styles */
+    .prose table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; margin-bottom: 1.5rem; }
+    .prose th { background-color: rgba(255, 255, 255, 0.05); font-weight: 700; padding: 0.75rem 1rem; border-bottom: 2px solid var(--gb-border); text-align: left; }
+    .prose td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--gb-border); }
+    .prose tr:hover { background-color: rgba(255, 255, 255, 0.02); }
 
     /* Force inline code to use theme variables and hide Tailwind's default backticks */
     .prose :not(pre) > code { 
@@ -296,6 +302,13 @@ fn render_theme_styles() -> Element(msg) {
     #sidebar.collapsed { transform: translateX(-100%); position: absolute; }
     #sidebar-resizer:hover, #sidebar-resizer:active { background-color: var(--gb-accent); opacity: 0.5; }
 
+    /* Sidebar chevrons — scoped to their own <details>, not ancestors */
+    .nav-chevron-wrap { color: var(--gb-nav-text); opacity: 0.7; }
+    summary:hover .nav-chevron-wrap,
+    details[open] > summary .nav-chevron-wrap { color: var(--gb-accent); opacity: 1; }
+    details[open] > summary .nav-chevron { transform: rotate(90deg); }
+
+    
     .brand-lucy-icon { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
     .brand-lucy:hover .brand-lucy-icon { transform: rotate(12deg) scale(1.15); }
     .brand-lucy .lucy-happy { opacity: 0; transition: opacity 0.2s ease-in-out; }
@@ -515,56 +528,68 @@ fn render_sidebar_link(
   current_path: String,
   base_path: String,
 ) -> Element(msg) {
-  let is_active = chapter.path == current_path
+  // 1. Detect if this is an unlinked folder (like [outer]())
+  let is_label_only = chapter.path == ""
+  let is_active = chapter.path == current_path && !is_label_only
 
-  // Check if we are currently inside this folder or any of its sub-folders
   let in_active_trail = is_active_trail(chapter, current_path)
 
   let base_classes =
-    "block px-3 py-2 rounded-md text-sm font-medium transition-all border border-transparent truncate pr-8 "
+    "block px-3 py-2 rounded-md text-sm font-medium transition-all border border-transparent truncate "
   let state_classes = case is_active {
     True -> "theme-nav-link-active"
     False -> "theme-nav-link"
   }
 
-  let link =
-    h.a(
-      [
-        a.href(base_path <> chapter.path),
-        a.class(base_classes <> state_classes),
-      ],
-      [h.text(chapter.title)],
-    )
+  // 2. Swap <a> for a plain <div> if there is no URL
+  let text_content = case is_label_only {
+    True ->
+      h.div([a.class(base_classes <> "theme-nav-link opacity-80")], [
+        h.text(chapter.title),
+      ])
+    False ->
+      h.a(
+        [
+          a.href(base_path <> chapter.path),
+          a.class(base_classes <> state_classes),
+        ],
+        [h.text(chapter.title)],
+      )
+  }
 
   case chapter.children {
-    [] -> h.li([], [link])
+    [] -> h.li([], [text_content])
     children -> {
       let details_attrs = case in_active_trail {
-        True -> [a.class("group relative"), a.attribute("open", "true")]
-        False -> [a.class("group relative")]
+        True -> [a.class("nav-group"), a.attribute("open", "true")]
+        False -> [a.class("nav-group")]
       }
 
       h.li([], [
         h.details(details_attrs, [
           h.summary(
             [
+              // 3. STRICT FLEXBOX - This fixes the Firefox absolute positioning bug!
               a.class(
-                "list-none [&::-webkit-details-marker]:hidden cursor-pointer relative",
+                "list-none [&::-webkit-details-marker]:hidden cursor-pointer flex items-stretch",
               ),
             ],
             [
-              link,
+              // Text takes up remaining space
+              h.div([a.class("flex-1 min-w-0")], [text_content]),
+
+              // Chevron gets its own dedicated flex box
               h.div(
                 [
                   a.class(
-                    "absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center opacity-40 group-hover:opacity-100 transition-opacity",
+                    "nav-chevron-wrap w-8 flex-shrink-0 flex items-center justify-center transition-all",
                   ),
                 ],
                 [
                   h.span(
                     [
                       a.class(
-                        "inline-block text-sm transition-transform duration-200 group-open:rotate-90",
+                        "nav-chevron inline-block text-sm transition-transform duration-200",
                       ),
                     ],
                     [h.text("▶")],
@@ -573,7 +598,6 @@ fn render_sidebar_link(
               ),
             ],
           ),
-          // FIX: Added the h.ul block back in so children are actually rendered!
           h.ul(
             [
               a.class(
@@ -733,7 +757,8 @@ fn get_base_path(current_path: String) -> String {
 }
 
 fn is_active_trail(chapter: Chapter, current_path: String) -> Bool {
-  case chapter.path == current_path {
+  let is_match = chapter.path == current_path && chapter.path != ""
+  case is_match {
     True -> True
     False ->
       list.any(chapter.children, fn(child) {
