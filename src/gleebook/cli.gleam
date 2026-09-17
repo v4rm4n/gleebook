@@ -1,11 +1,13 @@
 // src/gleebook/cli.gleam
-
 import gleam/io
+import gleam/list
+import gleam/string
 import gleam_community/ansi
-import gleebook/core.{Chapter}
-import gleebook_web/components
+import gleebook/markdown
+import gleebook/parser
 import gleebook_web/layout
 import glint
+import lustre/attribute as a
 import lustre/element
 import lustre/element/html as h
 import simplifile
@@ -16,21 +18,20 @@ pub fn init() -> glint.Command(Nil) {
 
   info("Initializing new book...")
 
-  // Call the core logic
   case do_init() {
-    Ok(_) -> success("Created book/ directory, SUMMARY.md, and index.md!")
+    Ok(_) -> success("Created book/ directory with sample pages!")
     Error(_) -> error("Failed to initialize the book.")
   }
 }
 
 pub fn do_init() {
   let assert Ok(_) = simplifile.create_directory_all("book")
-
-  let summary = "# Summary\n\n- [Introduction](index.md)\n"
+  let summary =
+    "# Summary\n\n- [Introduction](index.md)\n- [Next Page](next_page.md)\n"
   let assert Ok(_) = simplifile.write(to: "book/SUMMARY.md", contents: summary)
 
   let index = "# Welcome\n\nThis is your first page.\n"
-  simplifile.write(to: "book/index.md", contents: index)
+  let assert Ok(_) = simplifile.write(to: "book/index.md", contents: index)
 }
 
 pub fn build() -> glint.Command(Nil) {
@@ -39,55 +40,72 @@ pub fn build() -> glint.Command(Nil) {
 
   info("Building book...")
 
-  // 1. Ensure target directory structure exists
   let assert Ok(_) = simplifile.create_directory_all("build/gleebook/assets")
-
-  // 2. Copy assets so they live at build/gleebook/assets/
   let _ = simplifile.copy_directory("assets", "build/gleebook/assets")
 
-  let mock_chapters = [
-    Chapter("Introduction", "index.html", []),
-    Chapter("Getting Started", "setup.html", []),
-    Chapter("Advanced Gleam", "advanced.html", []),
-  ]
+  let summary_content = case simplifile.read("book/SUMMARY.md") {
+    Ok(content) -> content
+    Error(_) -> {
+      error(
+        "Could not read book/SUMMARY.md. Did you run `gleam run -m gleebook init`?",
+      )
+      panic
+    }
+  }
 
+  let chapters = parser.parse_summary(summary_content)
   let initial_theme = layout.CyberpunkPink
 
-  let mock_content =
-    h.div([], [
-      h.h1([], [h.text("Welcome to Gleebook")]),
-      h.p([], [
-        h.text(
-          "This is what your beautifully rendered markdown will look like.",
-        ),
-      ]),
+  let has_errors =
+    list.fold(chapters, False, fn(had_error, chapter) {
+      let md_filename = string.replace(chapter.path, ".html", ".md")
+      let source_path = "book/" <> md_filename
 
-      components.callout(
-        "Pro Tip: You can build beautiful reusable UI components in Lustre!",
-      ),
+      let #(page_content, is_missing) = case simplifile.read(source_path) {
+        Ok(content) -> #(content, False)
+        Error(_) -> {
+          error("Warning: Missing source file '" <> source_path <> "'")
+          #("# 404\n\nPage `" <> md_filename <> "` not found.", True)
+        }
+      }
 
-      components.code_block(
-        "gleam",
-        "pub fn main() {\n  io.println(\"Hello, contour!\")\n}",
-      ),
+      let parsed_markdown = markdown.render(page_content)
+      let dynamic_content = h.div([a.class("mt-4")], [parsed_markdown])
 
-      components.code_block("bash", "gleam run -m gleebook build"),
-    ])
+      let page =
+        layout.render_page(
+          chapter.title <> " - Gleebook",
+          chapters,
+          chapter.path,
+          dynamic_content,
+          initial_theme,
+        )
 
-  let page =
-    layout.render_page(
-      "Gleebook Preview",
-      mock_chapters,
-      mock_content,
-      initial_theme,
-    )
+      let html_string = element.to_document_string(page)
+      let out_path = "build/gleebook/" <> chapter.path
 
-  let html_string = element.to_document_string(page)
+      case simplifile.write(out_path, html_string) {
+        Ok(_) -> {
+          info("Compiled " <> out_path)
+          had_error || is_missing
+        }
+        Error(_) -> {
+          error(
+            "Markdown routing failed: Invalid link target for '"
+            <> chapter.title
+            <> "' -> "
+            <> out_path,
+          )
+          True
+        }
+      }
+    })
 
-  // 3. Write index.html right inside build/gleebook/
-  let assert Ok(_) = simplifile.write("build/gleebook/index.html", html_string)
-
-  success("Build complete! Open build/gleebook/index.html in your browser.")
+  case has_errors {
+    True -> error("Build completed with errors. Check the logs above.")
+    False ->
+      success("Build complete! Open build/gleebook/index.html in your browser.")
+  }
 }
 
 pub fn info(message: String) {

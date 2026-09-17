@@ -14,6 +14,7 @@ pub type Theme {
 pub fn render_page(
   title: String,
   chapters: List(Chapter),
+  current_path: String,
   content: Element(msg),
   default_theme: Theme,
 ) -> Element(msg) {
@@ -38,6 +39,15 @@ pub fn render_page(
         h.title([], title),
         h.script([a.src("https://cdn.tailwindcss.com?plugins=typography")], ""),
 
+        h.script(
+          [],
+          "
+          tailwind.config = {
+            darkMode: ['selector', '[data-theme=\"cyberpunk\"]'],
+          }
+          ",
+        ),
+
         h.link([
           a.rel("stylesheet"),
           a.href(
@@ -54,20 +64,43 @@ pub fn render_page(
         ),
         h.script([], "hljs.highlightAll();"),
 
-        // Client-side controller for localStorage, theme, and sidebar resizing/collapsing
+        // Client-side controller updated to use URL params for bulletproof file:/// tracking
         h.script(
           [],
           "
-          const savedTheme = localStorage.getItem('gleebook-theme');
-          if (savedTheme) {
+          let savedTheme = new URLSearchParams(window.location.search).get('theme');
+          if (!savedTheme) { try { savedTheme = localStorage.getItem('gleebook-theme'); } catch(e) {} }
+          if (!savedTheme) { savedTheme = window.name; }
+          
+          if (savedTheme === 'cyberpunk' || savedTheme === 'olive') {
             document.documentElement.setAttribute('data-theme', savedTheme);
           }
 
           document.addEventListener('DOMContentLoaded', () => {
+            // Automatically append current theme to all internal links clicked
+            document.addEventListener('click', (e) => {
+              const link = e.target.closest('a');
+              if (link && link.href && (link.protocol === 'file:' || link.hostname === window.location.hostname)) {
+                const currentTheme = document.documentElement.getAttribute('data-theme');
+                if (currentTheme) {
+                  try {
+                    const url = new URL(link.href);
+                    url.searchParams.set('theme', currentTheme);
+                    link.href = url.toString();
+                  } catch(err) {}
+                }
+              }
+            });
+
             const sidebar = document.getElementById('sidebar');
             const handle = document.getElementById('sidebar-resizer');
-            const savedWidth = localStorage.getItem('gleebook-sidebar-width');
-            const isCollapsed = localStorage.getItem('gleebook-sidebar-collapsed') === 'true';
+            
+            let savedWidth = null;
+            let isCollapsed = false;
+            try { 
+              savedWidth = localStorage.getItem('gleebook-sidebar-width');
+              isCollapsed = localStorage.getItem('gleebook-sidebar-collapsed') === 'true';
+            } catch(e) {}
 
             if (sidebar) {
               if (savedWidth && !isCollapsed) {
@@ -80,20 +113,17 @@ pub fn render_page(
 
             if (handle && sidebar) {
               let isResizing = false;
-
               handle.addEventListener('mousedown', (e) => {
                 isResizing = true;
                 document.body.style.cursor = 'col-resize';
                 document.body.style.userSelect = 'none';
               });
-
               document.addEventListener('mousemove', (e) => {
                 if (!isResizing) return;
                 const newWidth = Math.max(160, Math.min(e.clientX, 480));
                 sidebar.style.width = newWidth + 'px';
-                localStorage.setItem('gleebook-sidebar-width', newWidth);
+                try { localStorage.setItem('gleebook-sidebar-width', newWidth); } catch(e) {}
               });
-
               document.addEventListener('mouseup', () => {
                 if (isResizing) {
                   isResizing = false;
@@ -108,7 +138,7 @@ pub fn render_page(
             const sidebar = document.getElementById('sidebar');
             if (!sidebar) return;
             const collapsed = sidebar.classList.toggle('collapsed');
-            localStorage.setItem('gleebook-sidebar-collapsed', collapsed);
+            try { localStorage.setItem('gleebook-sidebar-collapsed', collapsed); } catch(e) {}
           }
           ",
         ),
@@ -119,12 +149,12 @@ pub fn render_page(
       h.body(
         [
           a.class(
-            "theme-body font-mono h-screen flex overflow-hidden relative z-0 transition-colors duration-200",
+            "theme-body font-mono h-screen flex overflow-hidden relative z-0",
           ),
         ],
         [
           render_lucies(),
-          render_sidebar(chapters),
+          render_sidebar(chapters, current_path),
           render_main(content),
         ],
       ),
@@ -197,7 +227,6 @@ fn render_theme_styles() -> Element(msg) {
       position: absolute;
     }
 
-    /* Resizer Handle Styling */
     #sidebar-resizer:hover, #sidebar-resizer:active {
       background-color: rgba(255, 175, 243, 0.4);
     }
@@ -208,10 +237,15 @@ fn render_theme_styles() -> Element(msg) {
     /* --- CYBERPUNK PINK THEME --- */
     [data-theme='cyberpunk'] .theme-body { background-color: #0d0914; color: #fffbe8; }
     [data-theme='cyberpunk'] .theme-lucies { display: block; }
+    
+    [data-theme='cyberpunk'] .lucy-open { filter: drop-shadow(0 0 8px #ff1493); }
+    [data-theme='cyberpunk'] .lucy-happy { filter: drop-shadow(0 0 12px #ff1493); }
+    
     [data-theme='cyberpunk'] .theme-sidebar { background-color: rgba(13, 9, 20, 0.7); border-color: rgba(255, 175, 243, 0.15); backdrop-filter: blur(24px); }
     [data-theme='cyberpunk'] .theme-brand { color: #ffaff3; }
     [data-theme='cyberpunk'] .theme-nav-link { color: #94a3b8; }
     [data-theme='cyberpunk'] .theme-nav-link:hover { background-color: rgba(255, 175, 243, 0.1); color: #ffaff3; border-color: rgba(255, 175, 243, 0.2); }
+    [data-theme='cyberpunk'] .theme-nav-link-active { background-color: rgba(255, 175, 243, 0.15); color: #ffaff3; border-left-color: #ffaff3; border-left-width: 4px; }
     
     [data-theme='cyberpunk'] .code-block-container { background-color: rgba(18, 13, 28, 0.8); border-color: rgba(255, 175, 243, 0.2); color: #fffbe8; }
     [data-theme='cyberpunk'] .code-block-container:hover { border-color: rgba(255, 175, 243, 0.5); box-shadow: 0 0 20px rgba(255, 175, 243, 0.2); }
@@ -234,9 +268,14 @@ fn render_theme_styles() -> Element(msg) {
     [data-theme='olive'] .theme-brand { color: #a3b899; }
     [data-theme='olive'] .theme-nav-link { color: #c8d1c5; }
     [data-theme='olive'] .theme-nav-link:hover { background-color: #4a584d; color: #ffffff; }
+    [data-theme='olive'] .theme-nav-link-active { background-color: #2d382e; color: #ffffff; border-left-color: #a3b899; border-left-width: 4px; }
 
     [data-theme='olive'] h1, [data-theme='olive'] h2, [data-theme='olive'] h3, [data-theme='olive'] h4 { color: #232d25 !important; font-weight: 700 !important; }
     [data-theme='olive'] p, [data-theme='olive'] li { color: #2b362c !important; }
+
+    [data-theme='olive'] .prose strong { color: #1a221b !important; font-weight: 800; }
+    [data-theme='olive'] .prose em { color: #2b362c !important; }
+    [data-theme='olive'] .prose pre { background-color: rgba(59, 71, 61, 0.1); color: #1a221b; }
 
     [data-theme='olive'] .callout-box { background-color: #dbe2d7; border-color: #3b473d; color: #1a221b; font-weight: 500; }
     [data-theme='olive'] .code-block-container { background-color: #e2e8df; border-color: #3b473d; color: #1a221b; }
@@ -248,11 +287,12 @@ fn render_theme_styles() -> Element(msg) {
 
     [data-theme='olive'] .hljs { background: transparent !important; color: #1a221b !important; }
     [data-theme='olive'] pre code { color: #1a221b !important; font-weight: 600; }
+    
     [data-theme='olive'] pre code .hl-keyword, [data-theme='olive'] .hljs-keyword { color: #6b21a8 !important; font-weight: bold; }
     [data-theme='olive'] pre code .hl-function, [data-theme='olive'] .hljs-title { color: #1d4ed8 !important; font-weight: 700; }
     [data-theme='olive'] pre code .hl-module { color: #0369a1 !important; }
     [data-theme='olive'] pre code .hl-variant { color: #c2410c !important; }
-    [data-theme='olive'] pre code .hl-operator { color: #334155 !important; }
+    [data-theme='olive'] pre code .hl-operator, [data-theme='olive'] .hljs-punctuation, [data-theme='olive'] .hljs-type, [data-theme='olive'] .hljs-built_in, [data-theme='olive'] .hljs-property, [data-theme='olive'] .hljs-params { color: #1a221b !important; }
     [data-theme='olive'] pre code .hl-string, [data-theme='olive'] .hljs-string { color: #15803d !important; }
     [data-theme='olive'] pre code .hl-number { color: #b45309 !important; }
     [data-theme='olive'] pre code .hl-comment, [data-theme='olive'] .hljs-comment { color: #64748b !important; font-style: italic; }
@@ -299,13 +339,26 @@ fn render_lucies() -> Element(msg) {
   )
 }
 
-fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
+fn render_sidebar(
+  chapters: List(Chapter),
+  current_path: String,
+) -> Element(msg) {
   let toggle_theme_js =
     "
+    document.body.classList.add('transition-colors', 'duration-300');
+    document.getElementById('sidebar').classList.add('transition-colors', 'duration-300');
     const current = document.documentElement.getAttribute('data-theme');
     const next = current === 'cyberpunk' ? 'olive' : 'cyberpunk';
     document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('gleebook-theme', next);
+    
+    try { localStorage.setItem('gleebook-theme', next); } catch(e) {}
+    window.name = next;
+    
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('theme', next);
+      window.history.replaceState({}, '', url.toString());
+    } catch(err) {}
     "
 
   h.aside(
@@ -316,7 +369,6 @@ fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
       ),
     ],
     [
-      // Resizer Handle Bar
       h.div(
         [
           a.id("sidebar-resizer"),
@@ -328,7 +380,6 @@ fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
       ),
 
       h.div([], [
-        // Sidebar Brand Header & Collapse Action
         h.div([a.class("flex items-center justify-between mb-6")], [
           h.div(
             [
@@ -343,13 +394,13 @@ fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
                   h.img([
                     a.src("./assets/lucy.svg"),
                     a.class(
-                      "lucy-open absolute inset-0 w-full h-full object-contain filter drop-shadow-[0_0_8px_#ff1493] transition-opacity duration-200",
+                      "lucy-open absolute inset-0 w-full h-full object-contain transition-opacity duration-200",
                     ),
                   ]),
                   h.img([
                     a.src("./assets/lucyhappy.svg"),
                     a.class(
-                      "lucy-happy absolute inset-0 w-full h-full object-contain filter drop-shadow-[0_0_12px_#ff1493] transition-opacity duration-200",
+                      "lucy-happy absolute inset-0 w-full h-full object-contain transition-opacity duration-200",
                     ),
                   ]),
                 ],
@@ -365,7 +416,6 @@ fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
             ],
           ),
 
-          // Inner Collapse Button
           h.button(
             [
               a.attribute("onclick", "toggleSidebar()"),
@@ -379,11 +429,13 @@ fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
         ]),
 
         h.nav([a.class("space-y-1")], [
-          h.ul([], list.map(chapters, render_sidebar_link)),
+          h.ul(
+            [],
+            list.map(chapters, fn(c) { render_sidebar_link(c, current_path) }),
+          ),
         ]),
       ]),
 
-      // Animated Sun / Moon Theme Switcher at bottom of sidebar
       h.div([a.class("pt-4 border-t border-slate-700/30 flex justify-center")], [
         h.button(
           [
@@ -396,7 +448,7 @@ fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
             h.div(
               [
                 a.class(
-                  "theme-knob w-6 h-6 rounded-full bg-[##400228] text-slate-900 flex items-center justify-center transition-transform duration-300 shadow-md relative overflow-hidden",
+                  "theme-knob w-6 h-6 rounded-full bg-[#ffaff3] text-slate-900 flex items-center justify-center transition-transform duration-300 shadow-md relative overflow-hidden",
                 ),
               ],
               [
@@ -425,17 +477,20 @@ fn render_sidebar(chapters: List(Chapter)) -> Element(msg) {
   )
 }
 
-fn render_sidebar_link(chapter: Chapter) -> Element(msg) {
+fn render_sidebar_link(chapter: Chapter, current_path: String) -> Element(msg) {
+  let is_active = chapter.path == current_path
+
+  let base_classes =
+    "block px-3 py-2 rounded-md text-sm font-medium transition-all border border-transparent truncate "
+  let state_classes = case is_active {
+    True -> "theme-nav-link-active"
+    False -> "theme-nav-link"
+  }
+
   h.li([], [
-    h.a(
-      [
-        a.href(chapter.path),
-        a.class(
-          "theme-nav-link block px-3 py-2 rounded-md text-sm font-medium transition-all border border-transparent truncate",
-        ),
-      ],
-      [h.text(chapter.title)],
-    ),
+    h.a([a.href(chapter.path), a.class(base_classes <> state_classes)], [
+      h.text(chapter.title),
+    ]),
   ])
 }
 
@@ -447,7 +502,6 @@ fn render_main(content: Element(msg)) -> Element(msg) {
       ),
     ],
     [
-      // Floating Sidebar Expand Trigger Button (visible when sidebar collapsed)
       h.button(
         [
           a.attribute("onclick", "toggleSidebar()"),
@@ -471,7 +525,6 @@ fn render_main(content: Element(msg)) -> Element(msg) {
   )
 }
 
-/// Generates naturally scattered SVG Lucies across left and right screen borders
 fn create_bubblegum_lucy(index: Int) -> Element(msg) {
   let top_num = { index * 67 + 19 } % 84 + 8
 
