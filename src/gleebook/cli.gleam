@@ -1,6 +1,8 @@
 // src/gleebook/cli.gleam
+import gleam/erlang/process
 import gleam/io
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import gleam_community/ansi
 import gleebook/core
@@ -11,7 +13,10 @@ import glint
 import lustre/attribute as a
 import lustre/element
 import lustre/element/html as h
+import mist
 import simplifile
+import wisp
+import wisp/wisp_mist
 
 pub fn init() -> glint.Command(Nil) {
   use <- glint.command_help("Scaffold a new book directory")
@@ -43,6 +48,16 @@ pub fn build() -> glint.Command(Nil) {
 
   let assert Ok(_) = simplifile.create_directory_all("build/gleebook/assets")
   let _ = simplifile.copy_directory("assets", "build/gleebook/assets")
+
+  // Safely copy custom.css ONLY if the user has actually created it
+  case simplifile.is_file("book/custom.css") {
+    Ok(True) -> {
+      let _ =
+        simplifile.copy_file("book/custom.css", "build/gleebook/custom.css")
+      info("Included custom.css theme overrides.")
+    }
+    _ -> Nil
+  }
 
   let summary_content = case simplifile.read("book/SUMMARY.md") {
     Ok(content) -> content
@@ -76,6 +91,10 @@ pub fn build() -> glint.Command(Nil) {
       let parsed_markdown = markdown.render(page_content)
       let dynamic_content = h.div([a.class("mt-4")], [parsed_markdown])
 
+      // Find neighbors from the flattened list
+      let #(prev_chap, next_chap) =
+        find_neighbors(all_chapters, chapter.path, None)
+
       let page =
         layout.render_page(
           chapter.title <> " - Gleebook",
@@ -83,6 +102,8 @@ pub fn build() -> glint.Command(Nil) {
           chapter.path,
           dynamic_content,
           initial_theme,
+          prev_chap,
+          next_chap,
         )
 
       let html_string = element.to_document_string(page)
@@ -138,4 +159,53 @@ pub fn error(message: String) {
 
 fn flatten_chapters(chapters: List(core.Chapter)) -> List(core.Chapter) {
   list.flat_map(chapters, fn(c) { [c, ..flatten_chapters(c.children)] })
+}
+
+fn find_neighbors(
+  chapters: List(core.Chapter),
+  target_path: String,
+  prev: Option(core.Chapter),
+) -> #(Option(core.Chapter), Option(core.Chapter)) {
+  case chapters {
+    [] -> #(None, None)
+    [c, next, ..] if c.path == target_path -> #(prev, Some(next))
+    [c] if c.path == target_path -> #(prev, None)
+    [c, ..rest] -> find_neighbors(rest, target_path, Some(c))
+  }
+}
+
+pub fn serve() -> glint.Command(Nil) {
+  use <- glint.command_help("Serve the compiled book locally on port 8000")
+  use _, _, _ <- glint.command()
+
+  info("Starting local development server...")
+  success("Gleebook is live at http://localhost:8000")
+  info("Press Ctrl+C to stop.")
+
+  let secret_key_base = wisp.random_string(64)
+
+  // Start the mist web server
+  let assert Ok(_) =
+    wisp_mist.handler(handle_request, secret_key_base)
+    |> mist.new
+    |> mist.port(8000)
+    |> mist.bind("localhost")
+    |> mist.start()
+
+  // Keep the process alive
+  process.sleep_forever()
+}
+
+fn handle_request(req: wisp.Request) -> wisp.Response {
+  // 1. Automatically redirect the root URL to index.html
+  case req.path {
+    "/" -> wisp.redirect("/index.html")
+    _ -> {
+      // 2. Serve static files securely from the build directory
+      use <- wisp.serve_static(req, under: "/", from: "build/gleebook")
+
+      // 3. Fallback for 404s
+      wisp.not_found()
+    }
+  }
 }

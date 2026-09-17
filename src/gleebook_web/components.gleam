@@ -1,6 +1,9 @@
 // src/gleebook_web/components.gleam
 
 import contour
+import gleam/list
+import gleam/result
+import gleam/string
 import lustre/attribute as a
 import lustre/element.{type Element}
 import lustre/element/html as h
@@ -84,10 +87,11 @@ pub fn code_block(language: String, raw_code: String) -> Element(msg) {
         ],
       ),
 
+      // FIX: Added !border-0, !bg-transparent, and !m-0 to override prose defaults
       h.pre(
         [
           a.class(
-            "p-4 sm:p-5 overflow-x-auto text-xs sm:text-sm font-mono leading-relaxed bg-transparent w-full max-w-full",
+            "p-4 sm:p-5 overflow-x-auto text-xs sm:text-sm font-mono leading-relaxed w-full max-w-full !border-0 !bg-transparent !m-0",
           ),
         ],
         [code_element],
@@ -110,6 +114,49 @@ pub fn callout(text: String) -> Element(msg) {
           h.text(text),
         ],
       ),
+    ],
+  )
+}
+
+pub fn youtube_embed(url: String) -> Element(msg) {
+  let video_id = case string.split(url, "v=") {
+    [_, id_part, ..] ->
+      id_part |> string.split("&") |> list.first |> result.unwrap(id_part)
+    _ ->
+      case string.split(url, "youtu.be/") {
+        [_, id_part, ..] ->
+          id_part |> string.split("?") |> list.first |> result.unwrap(id_part)
+        _ ->
+          case string.split(url, "embed/") {
+            [_, id_part, ..] ->
+              id_part
+              |> string.split("?")
+              |> list.first
+              |> result.unwrap(id_part)
+            _ -> "dQw4w9WgXcQ"
+          }
+      }
+  }
+
+  // Use a completely bare URL. No origin parameters, no nocookie domain.
+  let clean_embed_url = "https://www.youtube.com/embed/" <> video_id
+
+  h.div(
+    [
+      a.class(
+        "aspect-video w-full rounded-lg overflow-hidden my-8 shadow-lg border border-slate-700/30 bg-black",
+      ),
+    ],
+    [
+      h.iframe([
+        a.src(clean_embed_url),
+        a.class("w-full h-full border-0"),
+        a.attribute(
+          "allow",
+          "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture",
+        ),
+        a.attribute("allowfullscreen", "true"),
+      ]),
     ],
   )
 }

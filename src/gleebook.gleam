@@ -10,5 +10,6 @@ pub fn main() -> Nil {
   |> glint.pretty_help(glint.default_pretty_help())
   |> glint.add(at: ["init"], do: cli.init())
   |> glint.add(at: ["build"], do: cli.build())
+  |> glint.add(at: ["serve"], do: cli.serve())
   |> glint.run(argv.load().arguments)
 }

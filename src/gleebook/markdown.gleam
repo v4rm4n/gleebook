@@ -90,8 +90,17 @@ fn render_container(container: Container) -> Element(msg) {
     // Thematic Breaks (---)
     ThematicBreak -> h.hr([a.class("border-t border-current/20 my-8")])
 
-    // Raw HTML / Text blocks
-    RawBlock(content) -> element.unsafe_raw_html("", "div", [], content)
+    // Security: Disable raw HTML execution to prevent XSS
+    RawBlock(_content) -> {
+      h.div(
+        [
+          a.class(
+            "text-red-400 font-bold border border-red-500/30 p-3 rounded bg-red-500/10 my-4 text-sm",
+          ),
+        ],
+        [h.text("⚠️ Raw HTML blocks are disabled for security reasons.")],
+      )
+    }
 
     // Div wrappers (::: class_name)
     Div(class, _attrs, items) -> {
@@ -161,13 +170,23 @@ fn render_inline(inline: Inline) -> Element(msg) {
     Image(_attrs, content, destination) -> {
       let dest_str = resolve_destination(destination)
       let alt_text = extract_text_from_inlines(content)
-      h.img([
-        a.src(dest_str),
-        a.alt(alt_text),
-        a.class(
-          "rounded-lg shadow-md max-w-full h-auto my-4 border border-current/10",
-        ),
-      ])
+
+      let is_youtube =
+        string.contains(dest_str, "youtube.com")
+        || string.contains(dest_str, "youtu.be")
+
+      case is_youtube {
+        True -> components.youtube_embed(dest_str)
+        False -> {
+          h.img([
+            a.src(dest_str),
+            a.alt(alt_text),
+            a.class(
+              "rounded-lg shadow-md max-w-full h-auto my-4 border border-current/10",
+            ),
+          ])
+        }
+      }
     }
   }
 }

@@ -1,6 +1,7 @@
 // src/gleebook_web/layout.gleam
 import gleam/int.{to_string as int_to_string}
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import gleebook/core.{type Chapter}
 import lustre/attribute as a
@@ -18,6 +19,8 @@ pub fn render_page(
   current_path: String,
   content: Element(msg),
   default_theme: Theme,
+  prev: Option(Chapter),
+  next: Option(Chapter),
 ) -> Element(msg) {
   let default_theme_str = case default_theme {
     CyberpunkPink -> "cyberpunk"
@@ -67,7 +70,6 @@ pub fn render_page(
         ),
         h.script([], "hljs.highlightAll();"),
 
-        // Client-side controller updated to use URL params for bulletproof file:/// tracking
         h.script(
           [],
           "
@@ -80,7 +82,6 @@ pub fn render_page(
           }
 
           document.addEventListener('DOMContentLoaded', () => {
-            // Automatically append current theme to all internal links clicked
             document.addEventListener('click', (e) => {
               const link = e.target.closest('a');
               if (link && link.href && (link.protocol === 'file:' || link.hostname === window.location.hostname)) {
@@ -106,12 +107,8 @@ pub fn render_page(
             } catch(e) {}
 
             if (sidebar) {
-              if (savedWidth && !isCollapsed) {
-                sidebar.style.width = savedWidth + 'px';
-              }
-              if (isCollapsed) {
-                sidebar.classList.add('collapsed');
-              }
+              if (savedWidth && !isCollapsed) { sidebar.style.width = savedWidth + 'px'; }
+              if (isCollapsed) { sidebar.classList.add('collapsed'); }
             }
 
             if (handle && sidebar) {
@@ -147,6 +144,8 @@ pub fn render_page(
         ),
 
         render_theme_styles(),
+
+        h.link([a.rel("stylesheet"), a.href(base_path <> "custom.css")]),
       ]),
 
       h.body(
@@ -158,7 +157,7 @@ pub fn render_page(
         [
           render_lucies(base_path),
           render_sidebar(chapters, current_path, base_path),
-          render_main(content),
+          render_main(content, prev, next, base_path),
         ],
       ),
     ],
@@ -169,14 +168,130 @@ fn render_theme_styles() -> Element(msg) {
   h.style(
     [],
     "
+    :root, [data-theme='cyberpunk'] {
+      --gb-bg: #0d0914;
+      --gb-text: #fffbe8;
+      --gb-sidebar: rgba(13, 9, 20, 0.7);
+      --gb-border: rgba(255, 175, 243, 0.15);
+      --gb-accent: #ffaff3;
+      --gb-nav-text: #94a3b8;
+      --gb-nav-hover: rgba(255, 175, 243, 0.1);
+      --gb-nav-active: rgba(255, 175, 243, 0.15);
+      --gb-code-bg: rgba(18, 13, 28, 0.8);
+      --gb-code-bar: rgba(9, 6, 15, 0.8);
+      --gb-code-bar-text: #ffaff3;
+      --gb-callout: rgba(255, 175, 243, 0.1);
+      
+      /* Syntax Highlighting */
+      --gb-syn-keyword: #ffaff3;
+      --gb-syn-func: #818cf8;
+      --gb-syn-string: #4ade80;
+      --gb-syn-num: #fbbf24;
+      --gb-syn-comment: #94a3b8;
+      --gb-syn-punct: #fffbe8;
+    }
+
+    [data-theme='olive'] {
+      --gb-bg: #f2f4ef;
+      --gb-text: #1a221b;
+      --gb-sidebar: #3b473d;
+      --gb-border: #2d382e;
+      --gb-accent: #a3b899;
+      --gb-nav-text: #c8d1c5;
+      --gb-nav-hover: #4a584d;
+      --gb-nav-active: #2d382e;
+      --gb-code-bg: #e2e8df;
+      --gb-code-bar: #cbd4c6;
+      --gb-code-bar-text: #1a221b;
+      --gb-callout: #dbe2d7;
+      
+      /* Syntax Highlighting */
+      --gb-syn-keyword: #6b21a8;
+      --gb-syn-func: #1d4ed8;
+      --gb-syn-string: #15803d;
+      --gb-syn-num: #b45309;
+      --gb-syn-comment: #64748b;
+      --gb-syn-punct: #1a221b;
+    }
+
+    /* Core Application Variables */
+    .theme-body { background-color: var(--gb-bg); color: var(--gb-text); }
+    .theme-sidebar { background-color: var(--gb-sidebar); border-color: var(--gb-border); backdrop-filter: blur(24px); }
+    .theme-brand { color: var(--gb-accent); }
+    
+    /* Background Elements Display */
+    [data-theme='cyberpunk'] .theme-lucies { display: block; }
+    [data-theme='olive'] .theme-lucies { display: none !important; }
+    [data-theme='cyberpunk'] .lucy-open { filter: drop-shadow(0 0 8px #ff1493); }
+    [data-theme='cyberpunk'] .lucy-happy { filter: drop-shadow(0 0 12px #ff1493); }
+    
+    /* Navigation Variables */
+    .theme-nav-link { color: var(--gb-nav-text); }
+    .theme-nav-link:hover { background-color: var(--gb-nav-hover); color: var(--gb-accent); border-color: var(--gb-border); }
+    .theme-nav-link-active { background-color: var(--gb-nav-active); color: var(--gb-accent); border-left-color: var(--gb-accent); border-left-width: 4px; }
+    
+    /* Component Variables */
+    .code-block-container { background-color: var(--gb-code-bg); border-color: var(--gb-border); color: var(--gb-text); }
+    .code-block-bar { background-color: var(--gb-code-bar); border-color: var(--gb-border); color: var(--gb-code-bar-text); font-weight: 700; }
+    .code-block-bar button { border-color: var(--gb-border) !important; color: var(--gb-code-bar-text) !important; }
+    .code-block-bar .bg-slate-400\\/40 { background-color: var(--gb-border) !important; opacity: 0.8; }
+    .callout-box { background-color: var(--gb-callout); border-color: var(--gb-accent); color: var(--gb-text); }
+
+    /* General Typography Overrides */
+    .prose h1, .prose h2, .prose h3, .prose h4 { color: var(--gb-text) !important; }
+    .prose p, .prose li, .prose strong, .prose em { color: var(--gb-text) !important; }
+    .prose hr { border-color: var(--gb-border) !important; opacity: 1; border-top-width: 2px; }
+    .prose pre { background-color: var(--gb-code-bg); border: 1px solid var(--gb-border); color: var(--gb-text); }
+    .prose a { color: var(--gb-accent) !important; }
+
+    /* Force inline code to use theme variables and hide Tailwind's default backticks */
+    .prose :not(pre) > code { 
+      color: var(--gb-text) !important; 
+      background-color: var(--gb-callout) !important; 
+      padding: 0.15rem 0.3rem; 
+      border-radius: 0.25rem; 
+    }
+    .prose code::before, .prose code::after { content: none !important; }
+
+    /* Syntax Highlighting Base Resets */
+    .hljs { background: transparent !important; color: var(--gb-text) !important; }
+    pre code { font-weight: 600; }
+    pre code .hl-keyword, .hljs-keyword { color: var(--gb-syn-keyword) !important; font-weight: bold; }
+    pre code .hl-function, .hljs-title, .hljs-title\\.class_, .hljs-title\\.function_ { color: var(--gb-syn-func) !important; }
+    pre code .hl-string, .hljs-string { color: var(--gb-syn-string) !important; }
+    pre code .hl-number, .hljs-number { color: var(--gb-syn-num) !important; }
+    pre code .hl-comment, .hljs-comment { color: var(--gb-syn-comment) !important; font-style: italic; }
+    pre code .hl-operator, .hljs-punctuation, .hljs-operator, .hljs-type, .hljs-params, .hljs-variable { color: var(--gb-syn-punct) !important; }
+
+    /* Sun / Moon Toggle Switcher Knob */
+    [data-theme='cyberpunk'] .theme-knob { transform: translateX(0px); }
+    [data-theme='olive'] .theme-knob { transform: translateX(24px); }
+    [data-theme='cyberpunk'] .icon-sun { opacity: 0; transform: rotate(-90deg) scale(0.5); }
+    [data-theme='cyberpunk'] .icon-moon { opacity: 1; transform: rotate(0deg) scale(1); }
+    [data-theme='olive'] .icon-sun { opacity: 1; transform: rotate(0deg) scale(1); }
+    [data-theme='olive'] .icon-moon { opacity: 0; transform: rotate(90deg) scale(0.5); }
+
+    /* Interactive Elements & Animations */
+    #sidebar { transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.05s ease-out; will-change: transform, width; }
+    #sidebar.collapsed { transform: translateX(-100%); position: absolute; }
+    #sidebar-resizer:hover, #sidebar-resizer:active { background-color: var(--gb-accent); opacity: 0.5; }
+
+    .brand-lucy-icon { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+    .brand-lucy:hover .brand-lucy-icon { transform: rotate(12deg) scale(1.15); }
+    .brand-lucy .lucy-happy { opacity: 0; transition: opacity 0.2s ease-in-out; }
+    .brand-lucy:hover .lucy-happy { opacity: 1; }
+    .brand-lucy:hover .lucy-open { opacity: 0; }
+
+    /* Glitch Animation */
     @keyframes textGlitch {
-      0% { text-shadow: 0.5px 0 0 #ffaff3, -0.5px 0 0 #ff1493; transform: translate(0px, 0px); clip-path: inset(0 -10px 0 -10px); }
-      20% { text-shadow: 0.5px 0 0 #ffaff3, -0.5px 0 0 #ff1493; transform: translate(0px, -1px); clip-path: inset(20% -10px 20% -10px); }
-      40% { text-shadow: 0.5px 0 0 #ffaff3, -0.5px 0 0 #ff1493; transform: translate(0px, 1px); clip-path: inset(40% -10px 40% -10px); }
-      100% { text-shadow: 0.5px 0 0 #ffaff3, -0.5px 0 0 #ff1493; transform: translate(0px, 0px); clip-path: inset(0 -10px 0 -10px); }
+      0% { text-shadow: 0.5px 0 0 var(--gb-accent), -0.5px 0 0 #ff1493; transform: translate(0px, 0px); clip-path: inset(0 -10px 0 -10px); }
+      20% { text-shadow: 0.5px 0 0 var(--gb-accent), -0.5px 0 0 #ff1493; transform: translate(0px, -1px); clip-path: inset(20% -10px 20% -10px); }
+      40% { text-shadow: 0.5px 0 0 var(--gb-accent), -0.5px 0 0 #ff1493; transform: translate(0px, 1px); clip-path: inset(40% -10px 40% -10px); }
+      100% { text-shadow: 0.5px 0 0 var(--gb-accent), -0.5px 0 0 #ff1493; transform: translate(0px, 0px); clip-path: inset(0 -10px 0 -10px); }
     }
     .glitch-hover:hover { animation: textGlitch 0.15s steps(2, start) forwards; }
 
+    /* Drifting & Blinking Star Animations */
     @keyframes drift-1 {
       0%, 100% { transform: translate(0px, 0px) rotate(0deg) scale(1); }
       33% { transform: translate(40px, -60px) rotate(120deg) scale(1.2); }
@@ -201,112 +316,6 @@ fn render_theme_styles() -> Element(msg) {
     .lucy-blink-overlay {
       animation: lucyBlink 4s infinite ease-in-out;
     }
-
-    /* Sidebar Brand Lucy Hover & Rotation Styles */
-    .brand-lucy-icon {
-      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-    }
-    .brand-lucy:hover .brand-lucy-icon {
-      transform: rotate(12deg) scale(1.15);
-    }
-    .brand-lucy .lucy-happy {
-      opacity: 0;
-      transition: opacity 0.2s ease-in-out;
-    }
-    .brand-lucy:hover .lucy-happy {
-      opacity: 1;
-    }
-    .brand-lucy:hover .lucy-open {
-      opacity: 0;
-    }
-
-    /* Collapsible Sidebar Mechanics */
-    #sidebar {
-      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.05s ease-out;
-      will-change: transform, width;
-    }
-    #sidebar.collapsed {
-      transform: translateX(-100%);
-      position: absolute;
-    }
-
-    #sidebar-resizer:hover, #sidebar-resizer:active {
-      background-color: rgba(255, 175, 243, 0.4);
-    }
-    [data-theme='olive'] #sidebar-resizer:hover, [data-theme='olive'] #sidebar-resizer:active {
-      background-color: rgba(163, 184, 153, 0.5);
-    }
-
-    /* --- CYBERPUNK PINK THEME --- */
-    [data-theme='cyberpunk'] .theme-body { background-color: #0d0914; color: #fffbe8; }
-    [data-theme='cyberpunk'] .theme-lucies { display: block; }
-    
-    [data-theme='cyberpunk'] .lucy-open { filter: drop-shadow(0 0 8px #ff1493); }
-    [data-theme='cyberpunk'] .lucy-happy { filter: drop-shadow(0 0 12px #ff1493); }
-    
-    [data-theme='cyberpunk'] .theme-sidebar { background-color: rgba(13, 9, 20, 0.7); border-color: rgba(255, 175, 243, 0.15); backdrop-filter: blur(24px); }
-    [data-theme='cyberpunk'] .theme-brand { color: #ffaff3; }
-    [data-theme='cyberpunk'] .theme-nav-link { color: #94a3b8; }
-    [data-theme='cyberpunk'] .theme-nav-link:hover { background-color: rgba(255, 175, 243, 0.1); color: #ffaff3; border-color: rgba(255, 175, 243, 0.2); }
-    [data-theme='cyberpunk'] .theme-nav-link-active { background-color: rgba(255, 175, 243, 0.15); color: #ffaff3; border-left-color: #ffaff3; border-left-width: 4px; }
-    
-    [data-theme='cyberpunk'] .code-block-container { background-color: rgba(18, 13, 28, 0.8); border-color: rgba(255, 175, 243, 0.2); color: #fffbe8; }
-    [data-theme='cyberpunk'] .code-block-container:hover { border-color: rgba(255, 175, 243, 0.5); box-shadow: 0 0 20px rgba(255, 175, 243, 0.2); }
-    [data-theme='cyberpunk'] .code-block-bar { background-color: rgba(9, 6, 15, 0.8); border-color: rgba(255, 175, 243, 0.1); color: #ffaff3; }
-    [data-theme='cyberpunk'] .callout-box { background-color: rgba(255, 175, 243, 0.1); border-color: #ffaff3; color: #fffbe8; }
-
-    [data-theme='cyberpunk'] pre code .hl-keyword  { color: #ffaff3 !important; font-weight: bold; }
-    [data-theme='cyberpunk'] pre code .hl-function { color: #818cf8 !important; }
-    [data-theme='cyberpunk'] pre code .hl-module   { color: #c084fc !important; }
-    [data-theme='cyberpunk'] pre code .hl-variant  { color: #f472b6 !important; }
-    [data-theme='cyberpunk'] pre code .hl-operator { color: #f382e6 !important; }
-    [data-theme='cyberpunk'] pre code .hl-string   { color: #4ade80 !important; }
-    [data-theme='cyberpunk'] pre code .hl-number   { color: #fbbf24 !important; }
-    [data-theme='cyberpunk'] pre code .hl-comment  { color: #64748b !important; font-style: italic; }
-
-    /* --- RUST OLIVE THEME --- */
-    [data-theme='olive'] .theme-body { background-color: #f2f4ef; color: #1a221b; font-family: ui-sans-serif, system-ui, sans-serif; }
-    [data-theme='olive'] .theme-lucies { display: none !important; }
-    [data-theme='olive'] .theme-sidebar { background-color: #3b473d; border-color: #2d382e; color: #e8ebe6; }
-    [data-theme='olive'] .theme-brand { color: #a3b899; }
-    [data-theme='olive'] .theme-nav-link { color: #c8d1c5; }
-    [data-theme='olive'] .theme-nav-link:hover { background-color: #4a584d; color: #ffffff; }
-    [data-theme='olive'] .theme-nav-link-active { background-color: #2d382e; color: #ffffff; border-left-color: #a3b899; border-left-width: 4px; }
-
-    [data-theme='olive'] h1, [data-theme='olive'] h2, [data-theme='olive'] h3, [data-theme='olive'] h4 { color: #232d25 !important; font-weight: 700 !important; }
-    [data-theme='olive'] p, [data-theme='olive'] li { color: #2b362c !important; }
-
-    [data-theme='olive'] .prose strong { color: #1a221b !important; font-weight: 800; }
-    [data-theme='olive'] .prose em { color: #2b362c !important; }
-    [data-theme='olive'] .prose pre { background-color: rgba(59, 71, 61, 0.1); color: #1a221b; }
-
-    [data-theme='olive'] .callout-box { background-color: #dbe2d7; border-color: #3b473d; color: #1a221b; font-weight: 500; }
-    [data-theme='olive'] .code-block-container { background-color: #e2e8df; border-color: #3b473d; color: #1a221b; }
-    [data-theme='olive'] .code-block-container:hover { border-color: #232d25; box-shadow: 0 4px 14px rgba(35, 45, 37, 0.18); }
-    [data-theme='olive'] .code-block-bar { background-color: #cbd4c6; border-color: #3b473d; color: #232d25; font-weight: 700; }
-    [data-theme='olive'] .code-block-bar span { color: #232d25 !important; opacity: 1 !important; }
-    [data-theme='olive'] .code-block-bar button { color: #232d25 !important; border-color: #3b473d !important; font-weight: 600; }
-    [data-theme='olive'] .code-block-bar button:hover { background-color: #3b473d !important; color: #ffffff !important; }
-
-    [data-theme='olive'] .hljs { background: transparent !important; color: #1a221b !important; }
-    [data-theme='olive'] pre code { color: #1a221b !important; font-weight: 600; }
-    
-    [data-theme='olive'] pre code .hl-keyword, [data-theme='olive'] .hljs-keyword { color: #6b21a8 !important; font-weight: bold; }
-    [data-theme='olive'] pre code .hl-function, [data-theme='olive'] .hljs-title { color: #1d4ed8 !important; font-weight: 700; }
-    [data-theme='olive'] pre code .hl-module { color: #0369a1 !important; }
-    [data-theme='olive'] pre code .hl-variant { color: #c2410c !important; }
-    [data-theme='olive'] pre code .hl-operator, [data-theme='olive'] .hljs-punctuation, [data-theme='olive'] .hljs-type, [data-theme='olive'] .hljs-built_in, [data-theme='olive'] .hljs-property, [data-theme='olive'] .hljs-params { color: #1a221b !important; }
-    [data-theme='olive'] pre code .hl-string, [data-theme='olive'] .hljs-string { color: #15803d !important; }
-    [data-theme='olive'] pre code .hl-number { color: #b45309 !important; }
-    [data-theme='olive'] pre code .hl-comment, [data-theme='olive'] .hljs-comment { color: #64748b !important; font-style: italic; }
-
-    /* Sun / Moon Toggle Switcher Knob */
-    [data-theme='cyberpunk'] .theme-knob { transform: translateX(0px); }
-    [data-theme='olive'] .theme-knob { transform: translateX(24px); }
-    [data-theme='cyberpunk'] .icon-sun { opacity: 0; transform: rotate(-90deg) scale(0.5); }
-    [data-theme='cyberpunk'] .icon-moon { opacity: 1; transform: rotate(0deg) scale(1); }
-    [data-theme='olive'] .icon-sun { opacity: 1; transform: rotate(0deg) scale(1); }
-    [data-theme='olive'] .icon-moon { opacity: 0; transform: rotate(90deg) scale(0.5); }
     ",
   )
 }
@@ -382,7 +391,6 @@ fn render_sidebar(
         ],
         [],
       ),
-
       h.div([], [
         h.div([a.class("flex items-center justify-between mb-6")], [
           h.div(
@@ -419,7 +427,6 @@ fn render_sidebar(
               ),
             ],
           ),
-
           h.button(
             [
               a.attribute("onclick", "toggleSidebar()"),
@@ -431,7 +438,6 @@ fn render_sidebar(
             [h.text("◧")],
           ),
         ]),
-
         h.nav([a.class("space-y-1")], [
           h.ul(
             [],
@@ -441,7 +447,6 @@ fn render_sidebar(
           ),
         ]),
       ]),
-
       h.div([a.class("pt-4 border-t border-slate-700/30 flex justify-center")], [
         h.button(
           [
@@ -454,7 +459,7 @@ fn render_sidebar(
             h.div(
               [
                 a.class(
-                  "theme-knob w-6 h-6 rounded-full bg-[##400228] text-slate-900 flex items-center justify-center transition-transform duration-300 shadow-md relative overflow-hidden",
+                  "theme-knob w-6 h-6 rounded-full bg-[#400228] text-slate-900 flex items-center justify-center transition-transform duration-300 shadow-md relative overflow-hidden",
                 ),
               ],
               [
@@ -503,12 +508,9 @@ fn render_sidebar_link(
         a.href(base_path <> chapter.path),
         a.class(base_classes <> state_classes),
       ],
-      [
-        h.text(chapter.title),
-      ],
+      [h.text(chapter.title)],
     )
 
-  // Recursively render children if they exist
   let children_ui = case chapter.children {
     [] -> element.none()
     children ->
@@ -523,7 +525,12 @@ fn render_sidebar_link(
   h.li([], [link, children_ui])
 }
 
-fn render_main(content: Element(msg)) -> Element(msg) {
+fn render_main(
+  content: Element(msg),
+  prev: Option(Chapter),
+  next: Option(Chapter),
+  base_path: String,
+) -> Element(msg) {
   h.main(
     [
       a.class(
@@ -550,18 +557,73 @@ fn render_main(content: Element(msg)) -> Element(msg) {
         ],
         [content],
       ),
+
+      // Previous / Next Footer Navigation
+      h.div(
+        [
+          a.class(
+            "max-w-3xl mx-auto mt-16 pt-8 border-t border-slate-700/30 flex justify-between items-center",
+          ),
+        ],
+        [
+          case prev {
+            Some(p) ->
+              h.a(
+                [
+                  a.href(base_path <> p.path),
+                  a.class("group flex flex-col items-start"),
+                ],
+                [
+                  h.span([a.class("text-xs text-slate-500 mb-1")], [
+                    h.text("← PREVIOUS"),
+                  ]),
+                  h.span(
+                    [
+                      a.class(
+                        "text-lg font-bold group-hover:text-[#ffaff3] transition-colors",
+                      ),
+                    ],
+                    [h.text(p.title)],
+                  ),
+                ],
+              )
+            None -> h.div([], [])
+          },
+          case next {
+            Some(n) ->
+              h.a(
+                [
+                  a.href(base_path <> n.path),
+                  a.class("group flex flex-col items-end text-right"),
+                ],
+                [
+                  h.span([a.class("text-xs text-slate-500 mb-1")], [
+                    h.text("NEXT →"),
+                  ]),
+                  h.span(
+                    [
+                      a.class(
+                        "text-lg font-bold group-hover:text-[#ffaff3] transition-colors",
+                      ),
+                    ],
+                    [h.text(n.title)],
+                  ),
+                ],
+              )
+            None -> h.div([], [])
+          },
+        ],
+      ),
     ],
   )
 }
 
 fn create_bubblegum_lucy(index: Int, base_path: String) -> Element(msg) {
   let top_num = { index * 67 + 19 } % 84 + 8
-
   let left_num = case index % 2 {
     0 -> { index * 37 + 11 } % 26 + 4
     _ -> { index * 43 + 23 } % 24 + 70
   }
-
   let size_px = int_to_string({ index * 7 } % 14 + 18) <> "px"
   let opacity_val = int_to_string({ index * 9 } % 20 + 20) <> "%"
 
@@ -582,14 +644,12 @@ fn create_bubblegum_lucy(index: Int, base_path: String) -> Element(msg) {
     [
       h.img([
         a.src(base_path <> "assets/lucy.svg"),
-        // <-- Prepended base_path
         a.class(
           "absolute inset-0 w-full h-full object-contain filter drop-shadow-[0_0_6px_rgba(255,20,147,0.4)]",
         ),
       ]),
       h.img([
         a.src(base_path <> "assets/lucyhappy.svg"),
-        // <-- Prepended base_path
         a.class(
           "lucy-blink-overlay absolute inset-0 w-full h-full object-contain filter drop-shadow-[0_0_6px_rgba(255,20,147,0.4)]",
         ),
