@@ -49,21 +49,23 @@ pub fn build() -> glint.Command(Nil) {
     Chapter("Advanced Gleam", "advanced.html", []),
   ]
 
-  // 3. Create some dummy content using your new standard components!
+  // Default initial theme (user can toggle in browser via sidebar button)
+  let initial_theme = layout.CyberpunkPink
+
+  // 3. Components now style themselves dynamically via CSS data-theme!
   let mock_content =
     h.div([], [
       h.h1([], [h.text("Welcome to Gleebook")]),
       h.p([], [
         h.text(
-          "This is what your beautifully rendered markdown will look like. Notice how the typography plugin automatically spaces and styles paragraphs, headers, and links!",
+          "This is what your beautifully rendered markdown will look like.",
         ),
       ]),
 
       components.callout(
-        "Pro Tip: You can build beautiful reusable UI components in Lustre and map them directly to Markdown nodes!",
+        "Pro Tip: You can build beautiful reusable UI components in Lustre!",
       ),
 
-      // Using your shiny new code block component
       components.code_block(
         "gleam",
         "pub fn main() {\n  io.println(\"Hello, contour!\")\n}",
@@ -72,8 +74,14 @@ pub fn build() -> glint.Command(Nil) {
       components.code_block("bash", "gleam run -m gleebook build"),
     ])
 
-  // 4. Render the layout
-  let page = layout.render_page("Gleebook Preview", mock_chapters, mock_content)
+  // 4. Render layout with default theme
+  let page =
+    layout.render_page(
+      "Gleebook Preview",
+      mock_chapters,
+      mock_content,
+      initial_theme,
+    )
 
   // 5. Convert Lustre elements to an HTML string
   let html_string = element.to_document_string(page)
