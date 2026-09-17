@@ -4,7 +4,7 @@ This is your first page.
 
 ```gleam
 pub fn (a) {
-  let x = 12
+  let x = 21
   x
 }
 ```

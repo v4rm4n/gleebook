@@ -1,8 +1,11 @@
 // src/gleebook/cli.gleam
+import gleam/dict
 import gleam/erlang/process
+import gleam/int
 import gleam/io
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import gleam_community/ansi
 import gleebook/core
@@ -43,7 +46,10 @@ pub fn do_init() {
 pub fn build() -> glint.Command(Nil) {
   use <- glint.command_help("Compile the markdown book into static HTML")
   use _, _, _ <- glint.command()
+  do_build()
+}
 
+pub fn do_build() {
   info("Building book...")
 
   let assert Ok(_) = simplifile.create_directory_all("build/gleebook/assets")
@@ -175,24 +181,40 @@ fn find_neighbors(
 }
 
 pub fn serve() -> glint.Command(Nil) {
-  use <- glint.command_help("Serve the compiled book locally on port 8000")
-  use _, _, _ <- glint.command()
+  use <- glint.command_help("Serve the compiled book locally")
+
+  // 1. Define the flag using the new Glint API, which gives us a getter function
+  use get_port <- glint.flag(
+    glint.int_flag("port")
+    |> glint.flag_default(8000)
+    |> glint.flag_help("Port to serve on"),
+  )
+
+  use _, _, flags <- glint.command()
+
+  // 2. Call the getter function with the `flags` to extract our value
+  let port = result.unwrap(get_port(flags), 8000)
 
   info("Starting local development server...")
-  success("Gleebook is live at http://localhost:8000")
-  info("Press Ctrl+C to stop.")
+
+  // Do an initial build just to be safe
+  do_build()
+
+  // Spawn the file watcher as a concurrent background process
+  let _watcher_pid = process.spawn(fn() { watcher_loop(get_file_stats()) })
+
+  success("Gleebook is live at http://localhost:" <> int.to_string(port))
+  info("Watching book/ directory for changes... Press Ctrl+C to stop.")
 
   let secret_key_base = wisp.random_string(64)
 
-  // Start the mist web server
   let assert Ok(_) =
     wisp_mist.handler(handle_request, secret_key_base)
     |> mist.new
-    |> mist.port(8000)
+    |> mist.port(port)
     |> mist.bind("localhost")
     |> mist.start()
 
-  // Keep the process alive
   process.sleep_forever()
 }
 
@@ -207,5 +229,35 @@ fn handle_request(req: wisp.Request) -> wisp.Response {
       // 3. Fallback for 404s
       wisp.not_found()
     }
+  }
+}
+
+fn get_file_stats() -> dict.Dict(String, Int) {
+  // Recursively gets all files in the book directory
+  let files = result.unwrap(simplifile.get_files("book"), [])
+
+  list.fold(files, dict.new(), fn(acc, file) {
+    let mtime = case simplifile.file_info(file) {
+      Ok(info) -> info.mtime_seconds
+      Error(_) -> 0
+    }
+    dict.insert(acc, file, mtime)
+  })
+}
+
+fn watcher_loop(last_stats: dict.Dict(String, Int)) {
+  // Sleep for 1 second
+  process.sleep(1000)
+
+  let current_stats = get_file_stats()
+
+  // If the timestamps don't match, a file was saved!
+  case current_stats != last_stats {
+    True -> {
+      info("File change detected! Rebuilding...")
+      do_build()
+      watcher_loop(current_stats)
+    }
+    False -> watcher_loop(current_stats)
   }
 }
