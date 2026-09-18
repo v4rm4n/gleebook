@@ -1,0 +1,9 @@
+{
+  "devDependencies": {
+    "@tailwindcss/typography": "^0.5.20",
+    "tailwindcss": "^3.4.19"
+  },
+  "scripts": {
+  "css": "tailwindcss -c tailwind.config.js -i tailwind.css -o priv/assets/gleebook.css --minify"
+}
+}

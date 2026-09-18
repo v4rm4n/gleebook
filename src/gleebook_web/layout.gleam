@@ -37,135 +37,34 @@ pub fn render_page(
       a.attribute("data-theme", default_theme_str),
     ],
     [
-      h.head([], [
-        h.meta([a.charset("utf-8")]),
-        h.meta([
-          a.name("viewport"),
-          a.content("width=device-width, initial-scale=1.0"),
-        ]),
-        h.title([], title),
-        h.script([a.src("https://cdn.tailwindcss.com?plugins=typography")], ""),
-
-        h.script(
-          [],
-          "
-          tailwind.config = {
-            darkMode: ['selector', '[data-theme=\"cyberpunk\"]'],
-          }
-          ",
-        ),
-
-        h.link([
-          a.rel("stylesheet"),
-          a.href(
-            "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css",
-          ),
-        ]),
-        h.script(
+      h.head(
+        [],
+        list.append(
           [
-            a.src(
-              "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js",
-            ),
+            h.meta([a.charset("utf-8")]),
+            h.meta([
+              a.name("viewport"),
+              a.content("width=device-width, initial-scale=1.0"),
+            ]),
+            h.title([], title),
+            // 1. Resolve the theme BEFORE any stylesheet is applied, so a page
+            //    never paints in the wrong theme and then flips.
+            h.script([], theme_bootstrap_js),
+            // 2. Tailwind is compiled ahead of time into priv/assets/gleebook.css
+            //    (see tailwind.config.js). The Play CDN recompiles ~500 KB of JS on
+            //    every page load and must never be used for a published site.
+            h.link([
+              a.rel("stylesheet"),
+              a.href(base_path <> "assets/gleebook.css"),
+            ]),
+            h.link([a.rel("stylesheet"), a.href(hljs_css_url)]),
+            render_theme_styles(),
+            h.link([a.rel("stylesheet"), a.href(base_path <> "custom.css")]),
           ],
-          "",
+          // 3. Warm the cache for the chapters the reader will most likely open next.
+          prefetch_links(prev, next, base_path),
         ),
-        h.script([], "hljs.highlightAll();"),
-
-        h.script(
-          [],
-          "
-          let savedTheme = new URLSearchParams(window.location.search).get('theme');
-          if (!savedTheme) { try { savedTheme = localStorage.getItem('gleebook-theme'); } catch(e) {} }
-          if (!savedTheme) { savedTheme = window.name; }
-          
-          if (savedTheme === 'cyberpunk' || savedTheme === 'olive') {
-            document.documentElement.setAttribute('data-theme', savedTheme);
-          }
-
-          document.addEventListener('DOMContentLoaded', () => {
-            document.addEventListener('click', (e) => {
-              const link = e.target.closest('a');
-              if (link && link.href && (link.protocol === 'file:' || link.hostname === window.location.hostname)) {
-                const currentTheme = document.documentElement.getAttribute('data-theme');
-                if (currentTheme) {
-                  try {
-                    const url = new URL(link.href);
-                    url.searchParams.set('theme', currentTheme);
-                    link.href = url.toString();
-                  } catch(err) {}
-                }
-              }
-            });
-
-            const sidebar = document.getElementById('sidebar');
-            const handle = document.getElementById('sidebar-resizer');
-            
-            let savedWidth = null;
-            let isCollapsed = false;
-            try { 
-              savedWidth = localStorage.getItem('gleebook-sidebar-width');
-              isCollapsed = localStorage.getItem('gleebook-sidebar-collapsed') === 'true';
-            } catch(e) {}
-
-            if (sidebar) {
-              if (savedWidth && !isCollapsed) { sidebar.style.width = savedWidth + 'px'; }
-              if (isCollapsed) { sidebar.classList.add('collapsed'); }
-            }
-
-            if (handle && sidebar) {
-              let isResizing = false;
-              handle.addEventListener('mousedown', (e) => {
-                isResizing = true;
-                document.body.style.cursor = 'col-resize';
-                document.body.style.userSelect = 'none';
-              });
-              document.addEventListener('mousemove', (e) => {
-                if (!isResizing) return;
-                const newWidth = Math.max(160, Math.min(e.clientX, 480));
-                sidebar.style.width = newWidth + 'px';
-                try { localStorage.setItem('gleebook-sidebar-width', newWidth); } catch(e) {}
-              });
-              document.addEventListener('mouseup', () => {
-                if (isResizing) {
-                  isResizing = false;
-                  document.body.style.cursor = '';
-                  document.body.style.userSelect = '';
-                }
-              });
-            }
-          });
-
-          function toggleSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            if (!sidebar) return;
-            const collapsed = sidebar.classList.toggle('collapsed');
-            try { localStorage.setItem('gleebook-sidebar-collapsed', collapsed); } catch(e) {}
-          }
-          ",
-        ),
-
-        render_theme_styles(),
-
-        h.link([a.rel("stylesheet"), a.href(base_path <> "custom.css")]),
-
-        h.script([], "
-          if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-            let currentVersion = null;
-            setInterval(() => {
-              // FIX: Appended ?t=Date.now() to brutally bypass browser caching
-              fetch('" <> base_path <> "version.txt?t=' + Date.now(), { cache: 'no-store' })
-                .then(r => r.status === 200 ? r.text() : null)
-                .then(v => {
-                  if (v && currentVersion === null) {
-                    currentVersion = v;
-                  } else if (v && currentVersion !== v) {
-                    window.location.reload();
-                  }
-                }).catch(() => {});
-            }, 1000);
-          }
-          "),
-      ]),
+      ),
 
       h.body(
         [
@@ -176,12 +75,136 @@ pub fn render_page(
         [
           render_lucies(base_path),
           render_sidebar(book_title, chapters, current_path, base_path),
-          // <-- Pass it down
           render_main(content, prev, next, base_path),
+          // Scripts go at the end of <body>: nothing here blocks first paint.
+          h.script([], ui_js),
+          h.script([a.src(hljs_js_url), a.attribute("defer", "")], ""),
+          h.script(
+            [],
+            "document.addEventListener('DOMContentLoaded', () => { if (window.hljs) hljs.highlightAll(); });",
+          ),
+          h.script([], live_reload_js(base_path)),
         ],
       ),
     ],
   )
+}
+
+const hljs_css_url = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css"
+
+const hljs_js_url = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"
+
+/// Runs synchronously in <head>. Kept tiny on purpose: it only picks the theme
+/// and defines the sidebar toggle used by inline onclick handlers.
+const theme_bootstrap_js = "
+let savedTheme = new URLSearchParams(window.location.search).get('theme');
+if (!savedTheme) { try { savedTheme = localStorage.getItem('gleebook-theme'); } catch(e) {} }
+if (!savedTheme) { savedTheme = window.name; }
+if (savedTheme === 'cyberpunk' || savedTheme === 'olive') {
+  document.documentElement.setAttribute('data-theme', savedTheme);
+}
+
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  if (!sidebar) return;
+  const collapsed = sidebar.classList.toggle('collapsed');
+  try { localStorage.setItem('gleebook-sidebar-collapsed', collapsed); } catch(e) {}
+}
+"
+
+/// Runs at the end of <body>, after the DOM exists.
+const ui_js = "
+document.addEventListener('click', (e) => {
+  const link = e.target.closest('a');
+  if (link && link.href && (link.protocol === 'file:' || link.hostname === window.location.hostname)) {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    if (currentTheme) {
+      try {
+        const url = new URL(link.href);
+        url.searchParams.set('theme', currentTheme);
+        link.href = url.toString();
+      } catch(err) {}
+    }
+  }
+});
+
+const sidebar = document.getElementById('sidebar');
+const handle = document.getElementById('sidebar-resizer');
+
+let savedWidth = null;
+let isCollapsed = false;
+try {
+  savedWidth = localStorage.getItem('gleebook-sidebar-width');
+  isCollapsed = localStorage.getItem('gleebook-sidebar-collapsed') === 'true';
+} catch(e) {}
+
+if (sidebar) {
+  if (savedWidth && !isCollapsed) { sidebar.style.width = savedWidth + 'px'; }
+  if (isCollapsed) { sidebar.classList.add('collapsed'); }
+}
+
+// Sidebar resizing uses pointer capture: listeners exist only while dragging,
+// so an idle page has no mousemove handler at all, and the width is persisted
+// once on release instead of on every pointer sample.
+if (handle && sidebar) {
+  let width = null;
+  const move = (e) => {
+    width = Math.max(160, Math.min(e.clientX, 480));
+    sidebar.style.width = width + 'px';
+  };
+  const stop = () => {
+    handle.removeEventListener('pointermove', move);
+    handle.removeEventListener('pointerup', stop);
+    handle.removeEventListener('pointercancel', stop);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    if (width !== null) {
+      try { localStorage.setItem('gleebook-sidebar-width', width); } catch(e) {}
+    }
+  };
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', stop);
+    handle.addEventListener('pointercancel', stop);
+  });
+}
+"
+
+fn live_reload_js(base_path: String) -> String {
+  "
+if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+  let currentVersion = null;
+  setInterval(() => {
+    fetch('" <> base_path <> "version.txt?t=' + Date.now(), { cache: 'no-store' })
+      .then(r => r.status === 200 ? r.text() : null)
+      .then(v => {
+        if (v && currentVersion === null) {
+          currentVersion = v;
+        } else if (v && currentVersion !== v) {
+          window.location.reload();
+        }
+      }).catch(() => {});
+  }, 1000);
+}
+"
+}
+
+fn prefetch_links(
+  prev: Option(Chapter),
+  next: Option(Chapter),
+  base_path: String,
+) -> List(Element(msg)) {
+  [prev, next]
+  |> list.filter_map(fn(chapter) {
+    case chapter {
+      Some(c) -> Ok(h.link([a.rel("prefetch"), a.href(base_path <> c.path)]))
+      None -> Error(Nil)
+    }
+  })
 }
 
 fn render_theme_styles() -> Element(msg) {
@@ -191,7 +214,7 @@ fn render_theme_styles() -> Element(msg) {
     :root, [data-theme='cyberpunk'] {
       --gb-bg: #0d0914;
       --gb-text: #fffbe8;
-      --gb-sidebar: rgba(13, 9, 20, 0.7);
+      --gb-sidebar: rgba(13, 9, 20, 0.88);
       --gb-border: rgba(255, 175, 243, 0.15);
       --gb-accent: #ffaff3;
       --gb-nav-text: #94a3b8;
@@ -236,7 +259,7 @@ fn render_theme_styles() -> Element(msg) {
 
     /* Core Application Variables */
     .theme-body { background-color: var(--gb-bg); color: var(--gb-text); }
-    .theme-sidebar { background-color: var(--gb-sidebar); border-color: var(--gb-border); backdrop-filter: blur(24px); color: var(--gb-nav-text); }
+    .theme-sidebar { background-color: var(--gb-sidebar); border-color: var(--gb-border); color: var(--gb-nav-text); }
     .theme-brand { color: var(--gb-accent); }
     
     /* Background Elements Display */
@@ -326,15 +349,15 @@ fn render_theme_styles() -> Element(msg) {
 
     /* Drifting & Blinking Star Animations */
     @keyframes drift-1 {
-      0%, 100% { transform: translate(0px, 0px) rotate(0deg) scale(1); }
-      33% { transform: translate(40px, -60px) rotate(120deg) scale(1.2); }
-      66% { transform: translate(-30px, 30px) rotate(240deg) scale(0.8); }
+      0%, 100% { transform: translate(0px, 0px) rotate(0deg); }
+      33%      { transform: translate(40px, -60px) rotate(120deg); }
+      66%      { transform: translate(-30px, 30px) rotate(240deg); }
     }
-    
+
     @keyframes drift-2 {
-      0%, 100% { transform: translate(0px, 0px) rotate(0deg) scale(1); }
-      33% { transform: translate(-50px, 50px) rotate(-120deg) scale(1.3); }
-      66% { transform: translate(40px, -40px) rotate(-240deg) scale(0.7); }
+      0%, 100% { transform: translate(0px, 0px) rotate(0deg); }
+      33%      { transform: translate(-50px, 50px) rotate(-120deg); }
+      66%      { transform: translate(40px, -40px) rotate(-240deg); }
     }
 
     @keyframes lucyBlink {
@@ -345,6 +368,11 @@ fn render_theme_styles() -> Element(msg) {
     .lucy-1 { animation: drift-1 12s infinite ease-in-out; }
     .lucy-2 { animation: drift-2 15s infinite ease-in-out reverse; }
     .lucy-3 { animation: drift-1 18s infinite ease-in-out 5s; }
+    .lucy-1, .lucy-2, .lucy-3 { will-change: transform; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .lucy-1, .lucy-2, .lucy-3, .lucy-blink-overlay, .glitch-hover:hover { animation: none !important; }
+    }
 
     .lucy-blink-overlay {
       animation: lucyBlink 4s infinite ease-in-out;
@@ -354,7 +382,7 @@ fn render_theme_styles() -> Element(msg) {
 }
 
 fn render_lucies(base_path: String) -> Element(msg) {
-  let indices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  let indices = [1, 2, 3, 4, 5, 6]
 
   h.div(
     [
@@ -631,7 +659,7 @@ fn render_main(
         [
           a.attribute("onclick", "toggleSidebar()"),
           a.class(
-            "fixed top-4 left-4 z-30 p-2 rounded-md border border-current opacity-70 hover:opacity-100 backdrop-blur-md transition-all cursor-pointer shadow-md text-xs",
+            "fixed top-4 left-4 z-30 p-2 rounded-md border border-current bg-[var(--gb-bg)] opacity-70 hover:opacity-100 transition-opacity cursor-pointer shadow-md text-xs",
           ),
           a.attribute("title", "Toggle Sidebar"),
         ],
