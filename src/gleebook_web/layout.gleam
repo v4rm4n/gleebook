@@ -246,6 +246,42 @@ fn render_theme_styles() -> Element(msg) {
   h.style(
     [],
     "
+    /* Fix mobile tap highlights and stray cursors */
+    * {
+      -webkit-tap-highlight-color: rgba(0, 0, 0, 0) !important;
+      -webkit-tap-highlight-color: transparent !important;
+    }
+
+    #sidebar, #sidebar *, button, .brand-lucy {
+      -webkit-user-select: none !important;
+      user-select: none !important;
+      -webkit-touch-callout: none !important;
+      outline: none !important;
+    }
+
+    .brand-lucy img {
+      pointer-events: none;
+      user-select: none !important;
+      -moz-user-select: none !important;
+      -webkit-user-drag: none !important;
+      background: none !important;
+      padding: 0 !important;
+      border: 0 !important;
+      border-radius: 0 !important;
+    }
+    
+    .brand-lucy, .brand-lucy-icon {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+
+    #gb-open-sidebar { transition: opacity var(--gb-sidebar-t) var(--gb-ease), visibility 0s; }
+    html[data-sidebar='shown'] #gb-open-sidebar {
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity var(--gb-sidebar-t) var(--gb-ease), visibility 0s linear var(--gb-sidebar-t);
+    }
+
     :root, [data-theme='cyberpunk'] {
       --gb-bg: #0d0914;
       --gb-text: #fffbe8;
@@ -296,8 +332,8 @@ fn render_theme_styles() -> Element(msg) {
     
     [data-theme='cyberpunk'] .theme-lucies { display: block; }
     [data-theme='olive'] .theme-lucies { display: none !important; }
-    [data-theme='cyberpunk'] .lucy-open { filter: drop-shadow(0 0 8px #ff1493); }
-    [data-theme='cyberpunk'] .lucy-happy { filter: drop-shadow(0 0 12px #ff1493); }
+    [data-theme='cyberpunk'] .lucy-open  { filter: drop-shadow(0 0 2px #ff1493); }
+    [data-theme='cyberpunk'] .lucy-happy { filter: drop-shadow(0 0 3px #ff1493); }
     
     .theme-nav-link { color: var(--gb-nav-text); }
     .theme-nav-link:hover { background-color: var(--gb-nav-hover); color: var(--gb-accent); border-color: var(--gb-border); }
@@ -371,7 +407,7 @@ fn render_theme_styles() -> Element(msg) {
     }
 
     @media (prefers-reduced-motion: reduce) {
-      #sidebar, #gb-main, #gb-scrim { transition: none !important; }
+      #sidebar, #gb-main, #gb-scrim, #gb-open-sidebar { transition: none !important; }
     }
 
     .nav-chevron-wrap { color: var(--gb-nav-text); opacity: 0.7; }
@@ -697,6 +733,7 @@ fn render_main(
     [
       h.button(
         [
+          a.id("gb-open-sidebar"),
           a.attribute("onclick", "toggleSidebar()"),
           a.class(
             "fixed top-4 left-4 z-30 p-2 rounded-md border border-current bg-[var(--gb-bg)] opacity-70 hover:opacity-100 transition-opacity cursor-pointer shadow-md text-xs",

@@ -19,27 +19,45 @@ A fast, zero-config static site generator for books and documentation, written i
 - **Safe by default** — raw HTML in Markdown is never emitted into the page.
 - **Plain static output** — the result is a folder of HTML you can host anywhere.
 
-## Quick start
+## Installation
 
-Add gleebook to a Gleam project (an empty one is fine — it exists only to host the book):
+### Standalone release (no Gleam toolchain required)
 
-```sh
-gleam new my_book && cd my_book
+Every [GitHub release](https://github.com/v4rm4n/gleebook/releases) ships a prebuilt
+`gleebook` binary (currently only for linux-amd64).No Gleam compiler and no host project needed.
+
+```bash
+# Download the latest release and make it executable
+# Download release from https://github.com/v4rm4n/gleebook/releases/tag/v0.1.1
+chmod +x gleebook
+
+# Optional: put it on your PATH
+mv gleebook ~/.local/bin/
+```
+
+Then run it from the directory that contains (or will contain) your `book/` folder:
+
+```bash
+gleebook init
+gleebook serve --port=3000
+gleebook build
+```
+
+On Windows, run it through the Erlang launcher instead: `escript gleebook build`.
+
+### As a Gleam dependency
+
+If you already have a Gleam project, or want one to host the book, add Gleebook
+and run it through `gleam run`:
+
+```bash
 gleam add gleebook@1
+gleam run -m gleebook init
 ```
 
-Scaffold a book, then serve it with live reload:
+The commands below are written in this form. With the standalone release, replace
+`gleam run -m gleebook` with `gleebook`.
 
-```sh
-gleam run -m gleebook init        # creates book/SUMMARY.md and book/index.md
-gleam run -m gleebook serve       # http://localhost:8000
-```
-
-When you're ready to publish, produce the static site:
-
-```sh
-gleam run -m gleebook build       # writes build/gleebook/
-```
 
 ## Writing your book
 
