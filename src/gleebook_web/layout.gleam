@@ -47,12 +47,7 @@ pub fn render_page(
               a.content("width=device-width, initial-scale=1.0"),
             ]),
             h.title([], title),
-            // 1. Resolve the theme BEFORE any stylesheet is applied, so a page
-            //    never paints in the wrong theme and then flips.
             h.script([], theme_bootstrap_js),
-            // 2. Tailwind is compiled ahead of time into priv/assets/gleebook.css
-            //    (see tailwind.config.js). The Play CDN recompiles ~500 KB of JS on
-            //    every page load and must never be used for a published site.
             h.link([
               a.rel("stylesheet"),
               a.href(base_path <> "assets/gleebook.css"),
@@ -61,7 +56,6 @@ pub fn render_page(
             render_theme_styles(),
             h.link([a.rel("stylesheet"), a.href(base_path <> "custom.css")]),
           ],
-          // 3. Warm the cache for the chapters the reader will most likely open next.
           prefetch_links(prev, next, base_path),
         ),
       ),
@@ -71,13 +65,11 @@ pub fn render_page(
         [
           render_lucies(base_path),
           render_sidebar(book_title, chapters, current_path, base_path),
-          // Mobile only: tapping the dimmed page closes the drawer.
           h.div(
             [a.id("gb-scrim"), a.attribute("onclick", "toggleSidebar()")],
             [],
           ),
           render_main(content, prev, next, base_path),
-          // Scripts go at the end of <body>: nothing here blocks first paint.
           h.script([], ui_js),
           h.script([a.src(hljs_js_url), a.attribute("defer", "")], ""),
           h.script(
@@ -95,8 +87,6 @@ const hljs_css_url = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0
 
 const hljs_js_url = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"
 
-/// Runs synchronously in <head>. Kept tiny on purpose: it only picks the theme
-/// and defines the sidebar toggle used by inline onclick handlers.
 const theme_bootstrap_js = "
 let savedTheme = new URLSearchParams(window.location.search).get('theme');
 if (!savedTheme) { try { savedTheme = localStorage.getItem('gleebook-theme'); } catch(e) {} }
@@ -105,9 +95,8 @@ if (savedTheme === 'cyberpunk' || savedTheme === 'olive') {
   document.documentElement.setAttribute('data-theme', savedTheme);
 }
 
-// Sidebar state is decided here, before the first paint, so a page never
-// renders the sidebar open and then animates it shut on every navigation.
-const gbMobile = window.matchMedia('(max-width: 767.98px)');
+// Bumping mobile breakpoint to 1024px to cover large phones and tablets in portrait
+const gbMobile = window.matchMedia('(max-width: 1024px)');
 (function () {
   const root = document.documentElement;
   let width = null, collapsed = null;
@@ -123,57 +112,73 @@ function toggleSidebar() {
   const root = document.documentElement;
   const hide = root.getAttribute('data-sidebar') !== 'hidden';
   root.setAttribute('data-sidebar', hide ? 'hidden' : 'shown');
-  // On phones the drawer is always closed on the next page, so only desktops remember.
   if (!gbMobile.matches) {
     try { localStorage.setItem('gleebook-sidebar-collapsed', hide); } catch(e) {}
   }
 }
 "
 
-/// Runs at the end of <body>, after the DOM exists.
 const ui_js = "
-document.addEventListener('click', (e) => {
-  const link = e.target.closest('a');
-  if (link && link.href && (link.protocol === 'file:' || link.hostname === window.location.hostname)) {
-    const currentTheme = document.documentElement.getAttribute('data-theme');
-    if (currentTheme) {
-      try {
-        const url = new URL(link.href);
-        url.searchParams.set('theme', currentTheme);
-        link.href = url.toString();
-      } catch(err) {}
-    }
-  }
-});
-
 const root = document.documentElement;
 const sidebar = document.getElementById('sidebar');
 const handle = document.getElementById('sidebar-resizer');
 
-// Transitions are enabled one frame after load, so the initial state is
-// applied instantly and only user toggles animate.
+// PJAX Router for instant SPA-like navigation
+document.addEventListener('click', async (e) => {
+  const link = e.target.closest('a');
+  if (!link || !link.href) return;
+  
+  try {
+    const url = new URL(link.href);
+    if (url.origin !== window.location.origin && url.protocol !== 'file:') return;
+    
+    const currentTheme = root.getAttribute('data-theme');
+    if (currentTheme) {
+      url.searchParams.set('theme', currentTheme);
+      link.href = url.toString();
+    }
+    
+    if (link.hasAttribute('download') || link.hasAttribute('target') || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+    
+    const lastSegment = url.pathname.substring(url.pathname.lastIndexOf('/') + 1);
+    if (lastSegment.includes('.') && !lastSegment.endsWith('.html')) return;
+    
+    e.preventDefault();
+    if (gbMobile.matches) root.setAttribute('data-sidebar', 'hidden');
+    
+    const res = await fetch(url.href);
+    if (!res.ok) throw new Error('Fetch failed');
+    const text = await res.text();
+    const doc = new DOMParser().parseFromString(text, 'text/html');
+    
+    // Swap main content and active sidebar links seamlessly
+    document.getElementById('gb-main').innerHTML = doc.getElementById('gb-main').innerHTML;
+    const newNav = doc.getElementById('gb-nav-links');
+    if (newNav) document.getElementById('gb-nav-links').innerHTML = newNav.innerHTML;
+    document.title = doc.title;
+    
+    window.history.pushState({}, '', url.href);
+    document.getElementById('gb-main').scrollTo(0, 0);
+    if (window.hljs) window.hljs.highlightAll();
+  } catch(err) {
+    if (link.href) window.location.href = link.href;
+  }
+});
+
+window.addEventListener('popstate', () => window.location.reload());
+
 requestAnimationFrame(() => requestAnimationFrame(() => root.classList.add('gb-ready')));
 
-// Phones: Escape closes the drawer; choosing a chapter closes it too, and
-// crossing the breakpoint (rotating a tablet) re-applies the right default.
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && root.getAttribute('data-sidebar') === 'shown' && gbMobile.matches) toggleSidebar();
 });
-if (sidebar) {
-  sidebar.addEventListener('click', (e) => {
-    if (gbMobile.matches && e.target.closest('a')) root.setAttribute('data-sidebar', 'hidden');
-  });
-}
+
 gbMobile.addEventListener('change', (e) => {
   let collapsed = null;
   try { collapsed = localStorage.getItem('gleebook-sidebar-collapsed'); } catch(err) {}
   root.setAttribute('data-sidebar', e.matches || collapsed === 'true' ? 'hidden' : 'shown');
 });
 
-// Sidebar resizing uses pointer capture: listeners exist only while dragging,
-// so an idle page has no mousemove handler at all. The width lives in a CSS
-// variable so the content column follows the handle in the same frame, and it
-// is persisted once on release instead of on every pointer sample.
 if (handle && sidebar) {
   let width = null;
   const move = (e) => {
@@ -255,7 +260,6 @@ fn render_theme_styles() -> Element(msg) {
       --gb-code-bar-text: #ffaff3;
       --gb-callout: rgba(255, 175, 243, 0.1);
       
-      /* Syntax Highlighting */
       --gb-syn-keyword: #ffaff3;
       --gb-syn-func: #818cf8;
       --gb-syn-string: #4ade80;
@@ -278,7 +282,6 @@ fn render_theme_styles() -> Element(msg) {
       --gb-code-bar-text: #1a221b;
       --gb-callout: #dbe2d7;
       
-      /* Syntax Highlighting */
       --gb-syn-keyword: #6b21a8;
       --gb-syn-func: #1d4ed8;
       --gb-syn-string: #15803d;
@@ -287,43 +290,36 @@ fn render_theme_styles() -> Element(msg) {
       --gb-syn-punct: #1a221b;
     }
 
-    /* Core Application Variables */
     .theme-body { background-color: var(--gb-bg); color: var(--gb-text); }
     .theme-sidebar { background-color: var(--gb-sidebar); border-color: var(--gb-border); color: var(--gb-nav-text); }
     .theme-brand { color: var(--gb-accent); }
     
-    /* Background Elements Display */
     [data-theme='cyberpunk'] .theme-lucies { display: block; }
     [data-theme='olive'] .theme-lucies { display: none !important; }
     [data-theme='cyberpunk'] .lucy-open { filter: drop-shadow(0 0 8px #ff1493); }
     [data-theme='cyberpunk'] .lucy-happy { filter: drop-shadow(0 0 12px #ff1493); }
     
-    /* Navigation Variables */
     .theme-nav-link { color: var(--gb-nav-text); }
     .theme-nav-link:hover { background-color: var(--gb-nav-hover); color: var(--gb-accent); border-color: var(--gb-border); }
     .theme-nav-link-active { background-color: var(--gb-nav-active); color: var(--gb-accent); border-left-color: var(--gb-accent); border-left-width: 4px; }
     
-    /* Component Variables */
     .code-block-container { background-color: var(--gb-code-bg); border-color: var(--gb-border); color: var(--gb-text); }
     .code-block-bar { background-color: var(--gb-code-bar); border-color: var(--gb-border); color: var(--gb-code-bar-text); font-weight: 700; }
     .code-block-bar button { border-color: var(--gb-border) !important; color: var(--gb-code-bar-text) !important; }
     .code-block-bar .bg-slate-400\\/40 { background-color: var(--gb-border) !important; opacity: 0.8; }
     .callout-box { background-color: var(--gb-callout); border-color: var(--gb-accent); color: var(--gb-text); }
 
-    /* General Typography Overrides */
     .prose h1, .prose h2, .prose h3, .prose h4 { color: var(--gb-text) !important; }
     .prose p, .prose li, .prose strong, .prose em { color: var(--gb-text) !important; }
     .prose hr { border-color: var(--gb-border) !important; opacity: 1; border-top-width: 2px; }
     .prose pre { background-color: var(--gb-code-bg); border: 1px solid var(--gb-border); color: var(--gb-text); }
     .prose a { color: var(--gb-accent) !important; }
 
-    /* Explicit Table Styles */
     .prose table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; margin-bottom: 1.5rem; }
     .prose th { background-color: rgba(255, 255, 255, 0.05); font-weight: 700; padding: 0.75rem 1rem; border-bottom: 2px solid var(--gb-border); text-align: left; }
     .prose td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--gb-border); }
     .prose tr:hover { background-color: rgba(255, 255, 255, 0.02); }
 
-    /* Force inline code to use theme variables and hide Tailwind's default backticks */
     .prose :not(pre) > code { 
       color: var(--gb-text) !important; 
       background-color: var(--gb-callout) !important; 
@@ -332,7 +328,6 @@ fn render_theme_styles() -> Element(msg) {
     }
     .prose code::before, .prose code::after { content: none !important; }
 
-    /* Syntax Highlighting Base Resets */
     .hljs { background: transparent !important; color: var(--gb-text) !important; }
     pre code { font-weight: 600; }
     pre code .hl-keyword, .hljs-keyword { color: var(--gb-syn-keyword) !important; font-weight: bold; }
@@ -342,7 +337,6 @@ fn render_theme_styles() -> Element(msg) {
     pre code .hl-comment, .hljs-comment { color: var(--gb-syn-comment) !important; font-style: italic; }
     pre code .hl-operator, .hljs-punctuation, .hljs-operator, .hljs-type, .hljs-params, .hljs-variable { color: var(--gb-syn-punct) !important; }
 
-    /* Sun / Moon Toggle Switcher Knob */
     [data-theme='cyberpunk'] .theme-knob { transform: translateX(0px); }
     [data-theme='olive'] .theme-knob { transform: translateX(24px); }
     [data-theme='cyberpunk'] .icon-sun { opacity: 0; transform: rotate(-90deg) scale(0.5); }
@@ -350,9 +344,6 @@ fn render_theme_styles() -> Element(msg) {
     [data-theme='olive'] .icon-sun { opacity: 1; transform: rotate(0deg) scale(1); }
     [data-theme='olive'] .icon-moon { opacity: 0; transform: rotate(90deg) scale(0.5); }
 
-    /* Sidebar layout: the sidebar is fixed and slides with transform; the
-       content column follows with an animated margin. Both use the same
-       variable, so resizing and collapsing stay in sync. */
     :root { --gb-sidebar-w: 16rem; --gb-sidebar-t: 0.3s; --gb-ease: cubic-bezier(0.4, 0, 0.2, 1); }
     .theme-body { height: 100vh; height: 100dvh; }
     #sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: var(--gb-sidebar-w); transform: translateX(0); }
@@ -365,20 +356,17 @@ fn render_theme_styles() -> Element(msg) {
     #sidebar-resizer:hover, #sidebar-resizer:active { background-color: var(--gb-accent); opacity: 0.5; }
     #gb-scrim { display: none; }
 
-    /* Phones and small tablets: the sidebar becomes a drawer over the page,
-       closed by default, with a dimmed backdrop that closes it on tap. */
-    @media (max-width: 767.98px) {
+    /* HARDENED MOBILE OVERRIDES (1024px to cover tablets) */
+    @media screen and (max-width: 1024px) {
       #gb-main { margin-left: 0 !important; padding-top: 4rem; }
-      #sidebar { width: min(var(--gb-sidebar-w), 85vw); box-shadow: 0 0 40px rgba(0, 0, 0, 0.5); padding-left: max(1rem, env(safe-area-inset-left)); }
-      /* The drawer sits over text, so it must be opaque here. */
+      #sidebar { width: 85vw !important; max-width: 320px !important; box-shadow: 0 0 40px rgba(0, 0, 0, 0.5); padding-left: max(1rem, env(safe-area-inset-left, 1rem)); }
       [data-theme='cyberpunk'] .theme-sidebar { background-color: #0f0a17; }
-      html[data-sidebar='hidden'] #sidebar { transform: translateX(-100%); }
-      #sidebar-resizer { display: none; }
+      html[data-sidebar='hidden'] #sidebar { transform: translateX(-100%) !important; }
+      #sidebar-resizer { display: none !important; }
       #gb-scrim { display: block; position: fixed; inset: 0; z-index: 15; background: rgba(0, 0, 0, 0.5); opacity: 0; pointer-events: none; }
       html.gb-ready #gb-scrim { transition: opacity var(--gb-sidebar-t) var(--gb-ease); }
       html[data-sidebar='shown'] #gb-scrim { opacity: 1; pointer-events: auto; }
       .theme-nav-link { padding-top: 0.625rem; padding-bottom: 0.625rem; }
-      /* Decorative drifting stars cost battery on phones. */
       .theme-lucies { display: none !important; }
     }
 
@@ -386,20 +374,17 @@ fn render_theme_styles() -> Element(msg) {
       #sidebar, #gb-main, #gb-scrim { transition: none !important; }
     }
 
-    /* Sidebar chevrons — scoped to their own <details>, not ancestors */
     .nav-chevron-wrap { color: var(--gb-nav-text); opacity: 0.7; }
     summary:hover .nav-chevron-wrap,
     details[open] > summary .nav-chevron-wrap { color: var(--gb-accent); opacity: 1; }
     details[open] > summary .nav-chevron { transform: rotate(90deg); }
 
-    
     .brand-lucy-icon { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
     .brand-lucy:hover .brand-lucy-icon { transform: rotate(12deg) scale(1.15); }
     .brand-lucy .lucy-happy { opacity: 0; transition: opacity 0.2s ease-in-out; }
     .brand-lucy:hover .lucy-happy { opacity: 1; }
     .brand-lucy:hover .lucy-open { opacity: 0; }
 
-    /* Glitch Animation */
     @keyframes textGlitch {
       0% { text-shadow: 0.5px 0 0 var(--gb-accent), -0.5px 0 0 #ff1493; transform: translate(0px, 0px); clip-path: inset(0 -10px 0 -10px); }
       20% { text-shadow: 0.5px 0 0 var(--gb-accent), -0.5px 0 0 #ff1493; transform: translate(0px, -1px); clip-path: inset(20% -10px 20% -10px); }
@@ -408,7 +393,6 @@ fn render_theme_styles() -> Element(msg) {
     }
     .glitch-hover:hover { animation: textGlitch 0.15s steps(2, start) forwards; }
 
-    /* Drifting & Blinking Star Animations */
     @keyframes drift-1 {
       0%, 100% { transform: translate(0px, 0px) rotate(0deg) scale(1); }
       33% { transform: translate(40px, -60px) rotate(120deg) scale(1.2); }
@@ -546,7 +530,6 @@ fn render_sidebar(
                     "theme-brand text-xl font-bold tracking-widest glitch-hover transition-colors truncate",
                   ),
                 ],
-                // Uppercase the user's title to match the original vibe!
                 [h.text(string.uppercase(book_title))],
               ),
             ],
@@ -562,7 +545,8 @@ fn render_sidebar(
             [h.text("◧")],
           ),
         ]),
-        h.nav([a.class("space-y-1")], [
+        // ID added to nav here so the PJAX router can locate and update it
+        h.nav([a.id("gb-nav-links"), a.class("space-y-1")], [
           h.ul(
             [],
             list.map(chapters, fn(c) {
@@ -617,7 +601,6 @@ fn render_sidebar_link(
   current_path: String,
   base_path: String,
 ) -> Element(msg) {
-  // 1. Detect if this is an unlinked folder (like [outer]())
   let is_label_only = chapter.path == ""
   let is_active = chapter.path == current_path && !is_label_only
 
@@ -630,7 +613,6 @@ fn render_sidebar_link(
     False -> "theme-nav-link"
   }
 
-  // 2. Swap <a> for a plain <div> if there is no URL
   let text_content = case is_label_only {
     True ->
       h.div([a.class(base_classes <> "theme-nav-link opacity-80")], [
@@ -658,16 +640,12 @@ fn render_sidebar_link(
         h.details(details_attrs, [
           h.summary(
             [
-              // 3. STRICT FLEXBOX - This fixes the Firefox absolute positioning bug!
               a.class(
                 "list-none [&::-webkit-details-marker]:hidden cursor-pointer flex items-stretch",
               ),
             ],
             [
-              // Text takes up remaining space
               h.div([a.class("flex-1 min-w-0")], [text_content]),
-
-              // Chevron gets its own dedicated flex box
               h.div(
                 [
                   a.class(
@@ -731,13 +709,12 @@ fn render_main(
       h.div(
         [
           a.class(
-            "max-w-3xl mx-auto prose dark:prose-invert prose-headings:text-current prose-a:text-current w-full overflow-hidden break-words",
+            "max-w-3xl mx-auto prose dark:prose-invert prose-headings:text-current prose-a:text-current w-full break-words",
           ),
         ],
         [content],
       ),
 
-      // Previous / Next Footer Navigation
       h.div(
         [
           a.class(

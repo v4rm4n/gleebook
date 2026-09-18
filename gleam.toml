@@ -1,10 +1,10 @@
 name = "gleebook"
-version = "0.1.0"
+version = "0.1.1"
 description = "A modern, ultra-fast static site generator written in Gleam for building documentation."
 licences = ["Apache-2.0"]
 
 repository = { type = "github", user = "v4rm4n", repo = "gleebook" }
-# links = [{ title = "Website", href = "" }]
+links = [{ title = "Gleebook", href = "https://v4rm4n.github.io/gleebook" }]
 
 [dependencies]
 gleam_stdlib = ">= 1.0.0 and < 2.0.0"

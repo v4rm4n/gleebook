@@ -2,6 +2,16 @@
 
 **Gleebook** is a modern, ultra-fast static site generator written in **Gleam**. 
 
+---
+
+Read about **Gleebook** on:
+
+1. [**Hex**](https://gleebook.hexdocs.pm/)
+
+2. [**Github**](https://github.com/v4rm4n/gleebook)
+
+---
+
 It is designed to provide **documentation sites** with an **effortless** local development experience and **zero-config** deployment.
 
 ![Gleam and the value of small | Ubuntu Summit 26.04](https://www.youtube.com/watch?v=E6_JqYMeNqs)
