@@ -67,14 +67,15 @@ pub fn render_page(
       ),
 
       h.body(
-        [
-          a.class(
-            "theme-body font-mono h-screen flex overflow-hidden relative z-0",
-          ),
-        ],
+        [a.class("theme-body font-mono flex overflow-hidden relative z-0")],
         [
           render_lucies(base_path),
           render_sidebar(book_title, chapters, current_path, base_path),
+          // Mobile only: tapping the dimmed page closes the drawer.
+          h.div(
+            [a.id("gb-scrim"), a.attribute("onclick", "toggleSidebar()")],
+            [],
+          ),
           render_main(content, prev, next, base_path),
           // Scripts go at the end of <body>: nothing here blocks first paint.
           h.script([], ui_js),
@@ -104,11 +105,28 @@ if (savedTheme === 'cyberpunk' || savedTheme === 'olive') {
   document.documentElement.setAttribute('data-theme', savedTheme);
 }
 
+// Sidebar state is decided here, before the first paint, so a page never
+// renders the sidebar open and then animates it shut on every navigation.
+const gbMobile = window.matchMedia('(max-width: 767.98px)');
+(function () {
+  const root = document.documentElement;
+  let width = null, collapsed = null;
+  try {
+    width = localStorage.getItem('gleebook-sidebar-width');
+    collapsed = localStorage.getItem('gleebook-sidebar-collapsed');
+  } catch(e) {}
+  if (width) root.style.setProperty('--gb-sidebar-w', width + 'px');
+  root.setAttribute('data-sidebar', gbMobile.matches || collapsed === 'true' ? 'hidden' : 'shown');
+})();
+
 function toggleSidebar() {
-  const sidebar = document.getElementById('sidebar');
-  if (!sidebar) return;
-  const collapsed = sidebar.classList.toggle('collapsed');
-  try { localStorage.setItem('gleebook-sidebar-collapsed', collapsed); } catch(e) {}
+  const root = document.documentElement;
+  const hide = root.getAttribute('data-sidebar') !== 'hidden';
+  root.setAttribute('data-sidebar', hide ? 'hidden' : 'shown');
+  // On phones the drawer is always closed on the next page, so only desktops remember.
+  if (!gbMobile.matches) {
+    try { localStorage.setItem('gleebook-sidebar-collapsed', hide); } catch(e) {}
+  }
 }
 "
 
@@ -128,34 +146,45 @@ document.addEventListener('click', (e) => {
   }
 });
 
+const root = document.documentElement;
 const sidebar = document.getElementById('sidebar');
 const handle = document.getElementById('sidebar-resizer');
 
-let savedWidth = null;
-let isCollapsed = false;
-try {
-  savedWidth = localStorage.getItem('gleebook-sidebar-width');
-  isCollapsed = localStorage.getItem('gleebook-sidebar-collapsed') === 'true';
-} catch(e) {}
+// Transitions are enabled one frame after load, so the initial state is
+// applied instantly and only user toggles animate.
+requestAnimationFrame(() => requestAnimationFrame(() => root.classList.add('gb-ready')));
 
+// Phones: Escape closes the drawer; choosing a chapter closes it too, and
+// crossing the breakpoint (rotating a tablet) re-applies the right default.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && root.getAttribute('data-sidebar') === 'shown' && gbMobile.matches) toggleSidebar();
+});
 if (sidebar) {
-  if (savedWidth && !isCollapsed) { sidebar.style.width = savedWidth + 'px'; }
-  if (isCollapsed) { sidebar.classList.add('collapsed'); }
+  sidebar.addEventListener('click', (e) => {
+    if (gbMobile.matches && e.target.closest('a')) root.setAttribute('data-sidebar', 'hidden');
+  });
 }
+gbMobile.addEventListener('change', (e) => {
+  let collapsed = null;
+  try { collapsed = localStorage.getItem('gleebook-sidebar-collapsed'); } catch(err) {}
+  root.setAttribute('data-sidebar', e.matches || collapsed === 'true' ? 'hidden' : 'shown');
+});
 
 // Sidebar resizing uses pointer capture: listeners exist only while dragging,
-// so an idle page has no mousemove handler at all, and the width is persisted
-// once on release instead of on every pointer sample.
+// so an idle page has no mousemove handler at all. The width lives in a CSS
+// variable so the content column follows the handle in the same frame, and it
+// is persisted once on release instead of on every pointer sample.
 if (handle && sidebar) {
   let width = null;
   const move = (e) => {
     width = Math.max(160, Math.min(e.clientX, 480));
-    sidebar.style.width = width + 'px';
+    root.style.setProperty('--gb-sidebar-w', width + 'px');
   };
   const stop = () => {
     handle.removeEventListener('pointermove', move);
     handle.removeEventListener('pointerup', stop);
     handle.removeEventListener('pointercancel', stop);
+    root.classList.remove('gb-resizing');
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
     if (width !== null) {
@@ -165,6 +194,7 @@ if (handle && sidebar) {
   handle.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     handle.setPointerCapture(e.pointerId);
+    root.classList.add('gb-resizing');
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     handle.addEventListener('pointermove', move);
@@ -320,10 +350,41 @@ fn render_theme_styles() -> Element(msg) {
     [data-theme='olive'] .icon-sun { opacity: 1; transform: rotate(0deg) scale(1); }
     [data-theme='olive'] .icon-moon { opacity: 0; transform: rotate(90deg) scale(0.5); }
 
-    /* Interactive Elements & Animations */
-    #sidebar { transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.05s ease-out; will-change: transform, width; }
-    #sidebar.collapsed { transform: translateX(-100%); position: absolute; }
+    /* Sidebar layout: the sidebar is fixed and slides with transform; the
+       content column follows with an animated margin. Both use the same
+       variable, so resizing and collapsing stay in sync. */
+    :root { --gb-sidebar-w: 16rem; --gb-sidebar-t: 0.3s; --gb-ease: cubic-bezier(0.4, 0, 0.2, 1); }
+    .theme-body { height: 100vh; height: 100dvh; }
+    #sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: var(--gb-sidebar-w); transform: translateX(0); }
+    html[data-sidebar='hidden'] #sidebar { transform: translateX(calc(-1 * var(--gb-sidebar-w) - 2px)); }
+    #gb-main { margin-left: var(--gb-sidebar-w); }
+    html[data-sidebar='hidden'] #gb-main { margin-left: 0; }
+    html.gb-ready #sidebar { transition: transform var(--gb-sidebar-t) var(--gb-ease); }
+    html.gb-ready #gb-main { transition: margin-left var(--gb-sidebar-t) var(--gb-ease); }
+    html.gb-resizing #sidebar, html.gb-resizing #gb-main { transition: none; }
     #sidebar-resizer:hover, #sidebar-resizer:active { background-color: var(--gb-accent); opacity: 0.5; }
+    #gb-scrim { display: none; }
+
+    /* Phones and small tablets: the sidebar becomes a drawer over the page,
+       closed by default, with a dimmed backdrop that closes it on tap. */
+    @media (max-width: 767.98px) {
+      #gb-main { margin-left: 0 !important; padding-top: 4rem; }
+      #sidebar { width: min(var(--gb-sidebar-w), 85vw); box-shadow: 0 0 40px rgba(0, 0, 0, 0.5); padding-left: max(1rem, env(safe-area-inset-left)); }
+      /* The drawer sits over text, so it must be opaque here. */
+      [data-theme='cyberpunk'] .theme-sidebar { background-color: #0f0a17; }
+      html[data-sidebar='hidden'] #sidebar { transform: translateX(-100%); }
+      #sidebar-resizer { display: none; }
+      #gb-scrim { display: block; position: fixed; inset: 0; z-index: 15; background: rgba(0, 0, 0, 0.5); opacity: 0; pointer-events: none; }
+      html.gb-ready #gb-scrim { transition: opacity var(--gb-sidebar-t) var(--gb-ease); }
+      html[data-sidebar='shown'] #gb-scrim { opacity: 1; pointer-events: auto; }
+      .theme-nav-link { padding-top: 0.625rem; padding-bottom: 0.625rem; }
+      /* Decorative drifting stars cost battery on phones. */
+      .theme-lucies { display: none !important; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #sidebar, #gb-main, #gb-scrim { transition: none !important; }
+    }
 
     /* Sidebar chevrons — scoped to their own <details>, not ancestors */
     .nav-chevron-wrap { color: var(--gb-nav-text); opacity: 0.7; }
@@ -349,15 +410,15 @@ fn render_theme_styles() -> Element(msg) {
 
     /* Drifting & Blinking Star Animations */
     @keyframes drift-1 {
-      0%, 100% { transform: translate(0px, 0px) rotate(0deg); }
-      33%      { transform: translate(40px, -60px) rotate(120deg); }
-      66%      { transform: translate(-30px, 30px) rotate(240deg); }
+      0%, 100% { transform: translate(0px, 0px) rotate(0deg) scale(1); }
+      33% { transform: translate(40px, -60px) rotate(120deg) scale(1.2); }
+      66% { transform: translate(-30px, 30px) rotate(240deg) scale(0.8); }
     }
-
+    
     @keyframes drift-2 {
-      0%, 100% { transform: translate(0px, 0px) rotate(0deg); }
-      33%      { transform: translate(-50px, 50px) rotate(-120deg); }
-      66%      { transform: translate(40px, -40px) rotate(-240deg); }
+      0%, 100% { transform: translate(0px, 0px) rotate(0deg) scale(1); }
+      33% { transform: translate(-50px, 50px) rotate(-120deg) scale(1.3); }
+      66% { transform: translate(40px, -40px) rotate(-240deg) scale(0.7); }
     }
 
     @keyframes lucyBlink {
@@ -382,7 +443,7 @@ fn render_theme_styles() -> Element(msg) {
 }
 
 fn render_lucies(base_path: String) -> Element(msg) {
-  let indices = [1, 2, 3, 4, 5, 6]
+  let indices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
   h.div(
     [
@@ -440,7 +501,7 @@ fn render_sidebar(
     [
       a.id("sidebar"),
       a.class(
-        "theme-sidebar w-64 border-r p-4 overflow-y-auto relative z-20 flex flex-col justify-between flex-shrink-0 min-w-[160px] max-w-[480px]",
+        "theme-sidebar border-r p-4 overflow-y-auto z-20 flex flex-col justify-between",
       ),
     ],
     [
@@ -650,6 +711,7 @@ fn render_main(
 ) -> Element(msg) {
   h.main(
     [
+      a.id("gb-main"),
       a.class(
         "flex-1 overflow-y-auto p-4 sm:p-8 lg:p-12 relative z-10 min-w-0 max-w-full",
       ),
