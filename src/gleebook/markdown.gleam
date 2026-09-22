@@ -334,19 +334,22 @@ fn render_link(
 }
 
 fn render_image(alt_text: String, data: document.LinkData) -> Element(msg) {
-  let LinkData(dest, _title) = data
+  let LinkData(dest, title) = data
   let dest_str = resolve_destination(dest)
+  let lower_dest = string.lowercase(dest_str)
+
+  let is_video =
+    string.ends_with(lower_dest, ".mp4")
+    || string.ends_with(lower_dest, ".webm")
+    || string.ends_with(lower_dest, ".ogg")
 
   case components.youtube_id(dest_str) {
     Some(id) -> components.youtube_embed(id, alt_text)
     None ->
-      h.img([
-        a.src(dest_str),
-        a.alt(alt_text),
-        a.class(
-          "rounded-lg shadow-md max-w-full h-auto my-4 border border-current/10",
-        ),
-      ])
+      case is_video {
+        True -> components.video(dest_str, alt_text, title)
+        False -> components.image(dest_str, alt_text, title)
+      }
   }
 }
 

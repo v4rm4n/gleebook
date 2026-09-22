@@ -2,7 +2,7 @@
 
 import contour
 import gleam/list
-import gleam/option.{type Option}
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import lustre/attribute as a
 import lustre/element.{type Element}
@@ -149,4 +149,46 @@ pub fn youtube_embed(id: String, title: String) -> Element(msg) {
       ]),
     ],
   )
+}
+
+pub fn image(src: String, alt: String, title: Option(String)) -> Element(msg) {
+  let attrs = [
+    a.src(src),
+    a.alt(alt),
+    a.class(
+      "rounded-lg border border-slate-700/30 max-w-full h-auto my-6 shadow-md object-contain",
+    ),
+    a.attribute("loading", "lazy"),
+  ]
+
+  let final_attrs = case title {
+    Some(t) -> [a.title(t), ..attrs]
+    None -> attrs
+  }
+
+  h.img(final_attrs)
+}
+
+pub fn video(src: String, alt: String, title: Option(String)) -> Element(msg) {
+  let attrs = [
+    a.src(src),
+    a.class(
+      "rounded-lg border border-slate-700/30 w-full h-auto my-6 shadow-md",
+    ),
+    a.attribute("controls", "true"),
+    a.attribute("preload", "metadata"),
+  ]
+
+  // Use the provided title, or fallback to the alt text so it's accessible
+  let final_attrs = case title {
+    Some(t) -> [a.title(t), ..attrs]
+    None -> [a.title(alt), ..attrs]
+  }
+
+  h.video(final_attrs, [
+    h.text("Your browser does not support the video tag. "),
+    h.a([a.href(src), a.class("text-[var(--gb-accent)] underline")], [
+      h.text("Download the video here."),
+    ]),
+  ])
 }

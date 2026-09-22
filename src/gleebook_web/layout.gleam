@@ -175,7 +175,7 @@ document.addEventListener('keydown', (e) => {
 
 gbMobile.addEventListener('change', (e) => {
   let collapsed = null;
-  try { collapsed = localStorage.getItem('gleebook-sidebar-collapsed'); } catch(err) {}
+  try { localStorage.getItem('gleebook-sidebar-collapsed'); } catch(err) {}
   root.setAttribute('data-sidebar', e.matches || collapsed === 'true' ? 'hidden' : 'shown');
 });
 
@@ -252,13 +252,23 @@ fn render_theme_styles() -> Element(msg) {
       -webkit-tap-highlight-color: transparent !important;
     }
 
-    #sidebar, #sidebar *, button, .brand-lucy {
+    /* Prevent text selection and dirty cursors globally on UI elements */
+    #sidebar, #sidebar *, button, .brand-lucy, summary {
       -webkit-user-select: none !important;
       user-select: none !important;
       -webkit-touch-callout: none !important;
       outline: none !important;
+      caret-color: transparent !important;
     }
 
+    /* Restore normal caret and text selection exclusively for main book content */
+    .prose {
+      user-select: text !important;
+      -webkit-user-select: text !important;
+      caret-color: auto !important;
+    }
+
+    /* Nuke desktop image dragging and Firefox focus rings on the logo */
     .brand-lucy img {
       pointer-events: none;
       user-select: none !important;
@@ -308,8 +318,8 @@ fn render_theme_styles() -> Element(msg) {
       --gb-bg: #f2f4ef;
       --gb-text: #1a221b;
       --gb-sidebar: #3b473d;
-      --gb-border: #2d382e;
-      --gb-accent: #a3b899;
+      --gb-border: #9ca394;
+      --gb-accent: #6c9f80;
       --gb-nav-text: #c8d1c5;
       --gb-nav-hover: #4a584d;
       --gb-nav-active: #2d382e;
@@ -329,11 +339,13 @@ fn render_theme_styles() -> Element(msg) {
     .theme-body { background-color: var(--gb-bg); color: var(--gb-text); }
     .theme-sidebar { background-color: var(--gb-sidebar); border-color: var(--gb-border); color: var(--gb-nav-text); }
     .theme-brand { color: var(--gb-accent); }
+    .theme-footer-nav:hover { color: var(--gb-accent); }
     
     [data-theme='cyberpunk'] .theme-lucies { display: block; }
     [data-theme='olive'] .theme-lucies { display: none !important; }
-    [data-theme='cyberpunk'] .lucy-open  { filter: drop-shadow(0 0 2px #ff1493); }
-    [data-theme='cyberpunk'] .lucy-happy { filter: drop-shadow(0 0 3px #ff1493); }
+    
+    /* Removed buggy filter: drop-shadow from here! Replaced with a glow div below. */
+    [data-theme='olive'] .brand-lucy-glow { display: none !important; }
     
     .theme-nav-link { color: var(--gb-nav-text); }
     .theme-nav-link:hover { background-color: var(--gb-nav-hover); color: var(--gb-accent); border-color: var(--gb-border); }
@@ -539,13 +551,22 @@ fn render_sidebar(
           h.div(
             [
               a.class(
-                "brand-lucy flex items-center space-x-3 cursor-default group",
+                "brand-lucy flex items-center space-x-3 cursor-default group min-w-0",
               ),
             ],
             [
               h.div(
                 [a.class("brand-lucy-icon relative w-8 h-8 flex-shrink-0")],
                 [
+                  // New background blur layer replacing drop-shadow!
+                  h.div(
+                    [
+                      a.class(
+                        "brand-lucy-glow absolute inset-0 rounded-full bg-[#ff1493]/50 blur-[8px] transition-opacity duration-300",
+                      ),
+                    ],
+                    [],
+                  ),
                   h.img([
                     a.src(base_path <> "./assets/lucy.svg"),
                     a.class(
@@ -563,7 +584,7 @@ fn render_sidebar(
               h.span(
                 [
                   a.class(
-                    "theme-brand text-xl font-bold tracking-widest glitch-hover transition-colors truncate",
+                    "theme-brand text-lg sm:text-xl font-bold tracking-widest glitch-hover transition-colors break-words whitespace-normal leading-tight min-w-0",
                   ),
                 ],
                 [h.text(string.uppercase(book_title))],
@@ -574,7 +595,7 @@ fn render_sidebar(
             [
               a.attribute("onclick", "toggleSidebar()"),
               a.class(
-                "p-1 rounded opacity-60 hover:opacity-100 transition-opacity text-sm cursor-pointer",
+                "p-1 rounded opacity-60 hover:opacity-100 transition-opacity text-sm cursor-pointer focus:outline-none focus:ring-0",
               ),
               a.attribute("title", "Collapse Sidebar"),
             ],
@@ -596,7 +617,7 @@ fn render_sidebar(
           [
             a.attribute("onclick", toggle_theme_js),
             a.class(
-              "relative w-14 h-8 rounded-full bg-slate-800/60 border border-slate-600/40 p-1 cursor-pointer transition-all duration-300 focus:outline-none hover:border-slate-400",
+              "relative w-14 h-8 rounded-full bg-slate-800/60 border border-slate-600/40 p-1 cursor-pointer transition-all duration-300 focus:outline-none hover:border-slate-400 focus:ring-0",
             ),
           ],
           [
@@ -677,7 +698,7 @@ fn render_sidebar_link(
           h.summary(
             [
               a.class(
-                "list-none [&::-webkit-details-marker]:hidden cursor-pointer flex items-stretch",
+                "list-none [&::-webkit-details-marker]:hidden cursor-pointer flex items-stretch focus:outline-none focus:ring-0",
               ),
             ],
             [
@@ -736,7 +757,7 @@ fn render_main(
           a.id("gb-open-sidebar"),
           a.attribute("onclick", "toggleSidebar()"),
           a.class(
-            "fixed top-4 left-4 z-30 p-2 rounded-md border border-current bg-[var(--gb-bg)] opacity-70 hover:opacity-100 transition-opacity cursor-pointer shadow-md text-xs",
+            "fixed top-4 left-4 z-30 p-2 rounded-md border border-current bg-[var(--gb-bg)] opacity-70 hover:opacity-100 transition-opacity cursor-pointer shadow-md text-xs focus:outline-none focus:ring-0",
           ),
           a.attribute("title", "Toggle Sidebar"),
         ],
@@ -764,7 +785,7 @@ fn render_main(
               h.a(
                 [
                   a.href(base_path <> p.path),
-                  a.class("group flex flex-col items-start"),
+                  a.class("group flex flex-col items-start focus:outline-none"),
                 ],
                 [
                   h.span([a.class("text-xs text-slate-500 mb-1")], [
@@ -772,8 +793,9 @@ fn render_main(
                   ]),
                   h.span(
                     [
+                      // Replaced hardcoded text-[#ffaff3] with theme-footer-nav
                       a.class(
-                        "text-lg font-bold group-hover:text-[#ffaff3] transition-colors",
+                        "text-lg font-bold theme-footer-nav transition-colors",
                       ),
                     ],
                     [h.text(p.title)],
@@ -787,7 +809,9 @@ fn render_main(
               h.a(
                 [
                   a.href(base_path <> n.path),
-                  a.class("group flex flex-col items-end text-right"),
+                  a.class(
+                    "group flex flex-col items-end text-right focus:outline-none",
+                  ),
                 ],
                 [
                   h.span([a.class("text-xs text-slate-500 mb-1")], [
@@ -795,8 +819,9 @@ fn render_main(
                   ]),
                   h.span(
                     [
+                      // Replaced hardcoded text-[#ffaff3] with theme-footer-nav
                       a.class(
-                        "text-lg font-bold group-hover:text-[#ffaff3] transition-colors",
+                        "text-lg font-bold theme-footer-nav transition-colors",
                       ),
                     ],
                     [h.text(n.title)],

@@ -66,7 +66,10 @@ pub fn do_build() {
   // 1. Ensure the output directory exists as a proper folder
   let _ = simplifile.create_directory_all("build/gleebook")
 
-  copy_assets()
+  // Copy standard base assets (like Lucy)
+  copy_base_assets()
+  // Recursively copy all non-markdown files (images) from book/ to build/
+  copy_book_files()
 
   // Safely copy custom.css ONLY if the user has actually created it
   case simplifile.is_file("book/custom.css") {
@@ -196,7 +199,6 @@ fn find_neighbors(
 pub fn serve() -> glint.Command(Nil) {
   use <- glint.command_help("Serve the compiled book locally")
 
-  // 1. Define the flag using the new Glint API, which gives us a getter function
   use get_port <- glint.flag(
     glint.int_flag("port")
     |> glint.flag_default(8000)
@@ -205,15 +207,11 @@ pub fn serve() -> glint.Command(Nil) {
 
   use _, _, flags <- glint.command()
 
-  // 2. Call the getter function with the `flags` to extract our value
   let port = result.unwrap(get_port(flags), 8000)
 
   info("Starting local development server...")
-
-  // Do an initial build just to be safe
   do_build()
 
-  // Spawn the file watcher as a concurrent background process
   let _watcher_pid = process.spawn(fn() { watcher_loop(get_file_stats()) })
 
   success("Gleebook is live at http://localhost:" <> int.to_string(port))
@@ -232,23 +230,17 @@ pub fn serve() -> glint.Command(Nil) {
 }
 
 fn handle_request(req: wisp.Request) -> wisp.Response {
-  // 1. Automatically redirect the root URL to index.html
   case req.path {
     "/" -> wisp.redirect("/index.html")
     _ -> {
-      // 2. Serve static files securely from the build directory
       use <- wisp.serve_static(req, under: "/", from: "build/gleebook")
-
-      // 3. Fallback for 404s
       wisp.not_found()
     }
   }
 }
 
 fn get_file_stats() -> dict.Dict(String, Int) {
-  // Recursively gets all files in the book directory
   let files = result.unwrap(simplifile.get_files("book"), [])
-
   list.fold(files, dict.new(), fn(acc, file) {
     let mtime = case simplifile.file_info(file) {
       Ok(info) -> info.mtime_seconds
@@ -259,12 +251,8 @@ fn get_file_stats() -> dict.Dict(String, Int) {
 }
 
 fn watcher_loop(last_stats: dict.Dict(String, Int)) {
-  // Sleep for 1 second
   process.sleep(1000)
-
   let current_stats = get_file_stats()
-
-  // If the timestamps don't match, a file was saved!
   case current_stats != last_stats {
     True -> {
       info("File change detected! Rebuilding...")
@@ -275,8 +263,6 @@ fn watcher_loop(last_stats: dict.Dict(String, Int)) {
   }
 }
 
-/// Depth-first list of chapters that actually have a page.
-/// Label-only entries (`- [outer]()`) are dropped, but their children are kept.
 fn flatten_pages(chapters: List(core.Chapter)) -> List(core.Chapter) {
   list.flat_map(chapters, fn(c) {
     let rest = flatten_pages(c.children)
@@ -287,19 +273,11 @@ fn flatten_pages(chapters: List(core.Chapter)) -> List(core.Chapter) {
   })
 }
 
-/// Built-in assets (Lucy) come from the package's priv/ directory; the book's
-/// own assets/ directory is layered on top so authors can add or override files.
-fn copy_assets() -> Nil {
+/// Copies built-in CSS and SVG assets from priv/ to the build directory.
+fn copy_base_assets() -> Nil {
   let target = "build/gleebook/assets"
-
-  // 1. Ensure the parent output directory exists
-  let _ = simplifile.create_directory_all("build/gleebook")
-
-  // 2. Delete the target assets folder if it exists from a previous build
-  // (simplifile.copy_directory requires the destination to NOT exist beforehand!)
   let _ = simplifile.delete(target)
 
-  // 3. Copy built-in assets from priv/assets into the target
   case wisp.priv_directory("gleebook") {
     Ok(priv) -> {
       let priv_assets = priv <> "/assets"
@@ -313,20 +291,28 @@ fn copy_assets() -> Nil {
     }
     Error(_) -> Nil
   }
-
-  // 4. Ensure target directory exists in case priv/assets was empty
   let _ = simplifile.create_directory_all(target)
+  Nil
+}
 
-  // 5. Safely copy user-provided assets/ on top of built-in assets
-  case simplifile.is_directory("assets") {
-    Ok(True) -> {
-      case simplifile.get_files("assets") {
-        Ok(files) -> {
-          list.each(files, fn(file) {
-            let src_file = "assets/" <> file
-            let dest_file = target <> "/" <> file
+/// Recursively copies all non-markdown files (like images) from the book/ 
+/// directory directly into the build/gleebook/ output, preserving structure.
+fn copy_book_files() -> Nil {
+  case simplifile.get_files("book") {
+    Ok(files) -> {
+      list.each(files, fn(file) {
+        let is_md = string.ends_with(file, ".md")
+        let is_css = string.ends_with(file, "custom.css")
 
-            // Ensure nested directories inside assets/ are created
+        case is_md || is_css {
+          True -> Nil
+          False -> {
+            // file path looks like "book/nest1/image.jpg"
+            // we want to move it to "build/gleebook/nest1/image.jpg"
+            let relative_path = string.drop_start(file, 5)
+            // drop "book/"
+            let dest_file = "build/gleebook/" <> relative_path
+
             let dest_dir =
               dest_file
               |> string.split("/")
@@ -336,13 +322,12 @@ fn copy_assets() -> Nil {
               |> string.join("/")
 
             let _ = simplifile.create_directory_all(dest_dir)
-            let _ = simplifile.copy_file(src_file, dest_file)
-          })
-          info("Included assets/ from the book.")
+            let _ = simplifile.copy_file(file, dest_file)
+            Nil
+          }
         }
-        Error(_) -> Nil
-      }
+      })
     }
-    _ -> Nil
+    Error(_) -> Nil
   }
 }

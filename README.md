@@ -5,10 +5,14 @@
 
 A fast, zero-config static site generator for books and documentation, written in Gleam. Point it at a folder of Markdown files and a `SUMMARY.md`, and it builds a themed, searchable-by-eye site with a collapsible sidebar, syntax highlighting and live reload — in the spirit of mdBook, but built on Lustre, Wisp and Mist.
 
-<!-- ![Gleebook in the Cyberpunk Pink theme](docs/screenshot.png) -->
+## Demo-projects
+
+[gleebook](https://v4rm4n.github.io/gleebook/) (This project!)
+[my personal static website](https://v4rm4n.github.io/)
 
 ## Features
 
+- **Asset embeds** - Any images/videos will be automatically scanned for and rendered when `![alt](source)` is used!
 - **Type-safe generation** — every page is rendered through Lustre's typed element tree; there is no string templating.
 - **Instant watcher & live reload** — `serve` rebuilds when a file in `book/` changes and the browser reloads itself.
 - **Collapsible, resizable sidebar** — nested chapters use native `<details>` accordions; width and collapsed state are remembered per browser.
@@ -184,4 +188,4 @@ Further documentation can be found at <https://gleebook.hexdocs.pm/>.
 
 ## Licence
 
-MIT — see [LICENCE](LICENCE).
+Apache-2.0 — see [LICENSE](LICENSE).
