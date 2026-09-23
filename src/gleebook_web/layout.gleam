@@ -376,6 +376,22 @@ fn render_theme_styles() -> Element(msg) {
     }
     .prose code::before, .prose code::after { content: none !important; }
 
+    /* Strictly control list spacing and override Tailwind's .prose defaults */
+    .prose ul, .prose ol { 
+      margin-top: 0.75rem !important; 
+      margin-bottom: 0.75rem !important; 
+    }
+    .prose li { 
+      margin-top: 0.15rem !important; 
+      margin-bottom: 0.15rem !important; 
+      padding-left: 0 !important;
+    }
+    .prose li p { 
+      margin: 0 !important; 
+      padding: 0 !important; 
+      display: inline !important; 
+    }
+
     .hljs { background: transparent !important; color: var(--gb-text) !important; }
     pre code { font-weight: 600; }
     pre code .hl-keyword, .hljs-keyword { color: var(--gb-syn-keyword) !important; font-weight: bold; }

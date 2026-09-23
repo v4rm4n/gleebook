@@ -1,5 +1,5 @@
 name = "gleebook"
-version = "0.2.0"
+version = "0.2.1"
 description = "A modern, ultra-fast static site generator written in Gleam for building documentation."
 licences = ["Apache-2.0"]
 

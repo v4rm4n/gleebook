@@ -66,9 +66,7 @@ pub fn do_build() {
   // 1. Ensure the output directory exists as a proper folder
   let _ = simplifile.create_directory_all("build/gleebook")
 
-  // Copy standard base assets (like Lucy)
   copy_base_assets()
-  // Recursively copy all non-markdown files (images) from book/ to build/
   copy_book_files()
 
   // Safely copy custom.css ONLY if the user has actually created it
@@ -96,8 +94,51 @@ pub fn do_build() {
 
   let all_chapters = flatten_pages(chapters)
 
+  // --- ORPHAN PAGE DETECTION ---
+  // Find all .md files in the book that aren't in SUMMARY.md
+  let all_files = result.unwrap(simplifile.get_files("book"), [])
+  let hidden_chapters =
+    all_files
+    |> list.filter(fn(path) {
+      string.ends_with(path, ".md") && path != "book/SUMMARY.md"
+    })
+    |> list.filter_map(fn(file_path) {
+      let relative_md = string.drop_start(file_path, 5)
+      let html_path = string.replace(relative_md, ".md", ".html")
+
+      // Check if this file is already handled by the summary
+      let is_in_summary = list.any(all_chapters, fn(c) { c.path == html_path })
+
+      case is_in_summary {
+        True -> Error(Nil)
+        // Skip it, it's already in the sidebar
+        False -> {
+          // It's a hidden page! Try to extract an H1 title from it.
+          let title = case simplifile.read(file_path) {
+            Ok(content) -> {
+              let lines = string.split(content, "\n")
+              list.find_map(lines, fn(line) {
+                let trimmed = string.trim(line)
+                case string.starts_with(trimmed, "# ") {
+                  True -> Ok(string.drop_start(trimmed, 2) |> string.trim)
+                  False -> Error(Nil)
+                }
+              })
+              |> result.unwrap(relative_md)
+            }
+            Error(_) -> relative_md
+          }
+          Ok(core.Chapter(title: title, path: html_path, children: []))
+        }
+      }
+    })
+
+  // Combine standard pages and hidden pages for the build loop
+  let pages_to_build = list.append(all_chapters, hidden_chapters)
+  // -----------------------------
+
   let has_errors =
-    list.fold(all_chapters, False, fn(had_error, chapter) {
+    list.fold(pages_to_build, False, fn(had_error, chapter) {
       let md_filename = string.replace(chapter.path, ".html", ".md")
       let source_path = "book/" <> md_filename
 
@@ -112,6 +153,7 @@ pub fn do_build() {
       let parsed_markdown = markdown.render(page_content)
       let dynamic_content = h.div([a.class("mt-4")], [parsed_markdown])
 
+      // Pass `all_chapters` here so hidden pages don't accidentally link to each other via Next/Prev!
       let #(prev_chap, next_chap) =
         find_neighbors(all_chapters, chapter.path, None)
 

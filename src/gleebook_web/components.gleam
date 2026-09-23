@@ -23,13 +23,39 @@ pub fn code_block(language: String, raw_code: String) -> Element(msg) {
     }, 2000);
     "
 
+  let js_wrap_handler =
+    "
+    const code = this.closest('.code-block-container').querySelector('code');
+    const pre = this.closest('.code-block-container').querySelector('pre');
+    
+    if (code.classList.contains('whitespace-pre')) {
+      code.classList.remove('whitespace-pre');
+      code.classList.add('whitespace-pre-wrap', 'break-all');
+      pre.classList.add('whitespace-pre-wrap');
+      
+      this.innerText = 'UNWRAP';
+      this.classList.add('text-[var(--gb-accent)]', 'border-[var(--gb-accent)]');
+    } else {
+      code.classList.remove('whitespace-pre-wrap', 'break-all');
+      code.classList.add('whitespace-pre');
+      pre.classList.remove('whitespace-pre-wrap');
+      
+      this.innerText = 'WRAP';
+      this.classList.remove('text-[var(--gb-accent)]', 'border-[var(--gb-accent)]');
+    }
+    "
+
   let code_element = case language {
     "gleam" -> {
       let highlighted_html = contour.to_html(raw_code)
       element.unsafe_raw_html(
         "",
         "code",
-        [a.class("language-gleam block break-normal whitespace-pre")],
+        [
+          a.class(
+            "language-gleam block break-normal whitespace-pre transition-all",
+          ),
+        ],
         highlighted_html,
       )
     }
@@ -37,7 +63,9 @@ pub fn code_block(language: String, raw_code: String) -> Element(msg) {
       h.code(
         [
           a.class(
-            "language-" <> language <> " block break-normal whitespace-pre",
+            "language-"
+            <> language
+            <> " block break-normal whitespace-pre transition-all",
           ),
         ],
         [h.text(raw_code)],
@@ -74,15 +102,27 @@ pub fn code_block(language: String, raw_code: String) -> Element(msg) {
               [h.text(language)],
             ),
           ]),
-          h.button(
-            [
-              a.attribute("onclick", js_copy_handler),
-              a.class(
-                "text-[9px] font-mono px-2 py-0.5 rounded border transition-all cursor-pointer active:scale-95 flex-shrink-0 ml-2",
-              ),
-            ],
-            [h.text("COPY")],
-          ),
+          h.div([a.class("flex items-center space-x-2 flex-shrink-0 ml-2")], [
+            h.button(
+              [
+                a.attribute("onclick", js_wrap_handler),
+                a.class(
+                  "text-[9px] font-mono px-2 py-0.5 rounded border transition-all cursor-pointer active:scale-95",
+                ),
+                a.attribute("title", "Toggle text wrap"),
+              ],
+              [h.text("WRAP")],
+            ),
+            h.button(
+              [
+                a.attribute("onclick", js_copy_handler),
+                a.class(
+                  "text-[9px] font-mono px-2 py-0.5 rounded border transition-all cursor-pointer active:scale-95",
+                ),
+              ],
+              [h.text("COPY")],
+            ),
+          ]),
         ],
       ),
       h.pre(
